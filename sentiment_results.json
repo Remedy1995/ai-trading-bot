@@ -1,0 +1,86 @@
+[
+  {
+    "coin": "bitcoin",
+    "ticker": "BTC",
+    "price": 74493,
+    "change_24h": 3.16,
+    "chart": {
+      "verdict": "HOLD_DN",
+      "event": "Downtrend (no new cross)",
+      "confidence": "LOW",
+      "sma20": 68809.3,
+      "sma50": 71435.64,
+      "rsi": 69.13,
+      "gap_pct": 3.677
+    },
+    "sentiment": {
+      "verdict": "UNAVAILABLE",
+      "reasoning": "No PERPLEXITY_API_KEY set. Export it as an env variable.",
+      "confidence": "N/A"
+    },
+    "decision": {
+      "final_signal": "HOLD",
+      "action": "HOLD \u2014 No clear directional signal",
+      "emoji": "\u26aa",
+      "both_agree": false,
+      "confidence": "LOW"
+    },
+    "timestamp": "2026-03-16T22:05:45.995818"
+  },
+  {
+    "coin": "ethereum",
+    "ticker": "ETH",
+    "price": 2371.52,
+    "change_24h": 10.9,
+    "chart": {
+      "verdict": "HOLD_DN",
+      "event": "Downtrend (no new cross)",
+      "confidence": "LOW",
+      "sma20": 2029.34,
+      "sma50": 2142.63,
+      "rsi": 74.03,
+      "gap_pct": 5.287
+    },
+    "sentiment": {
+      "verdict": "UNAVAILABLE",
+      "reasoning": "No PERPLEXITY_API_KEY set. Export it as an env variable.",
+      "confidence": "N/A"
+    },
+    "decision": {
+      "final_signal": "HOLD",
+      "action": "HOLD \u2014 No clear directional signal",
+      "emoji": "\u26aa",
+      "both_agree": false,
+      "confidence": "LOW"
+    },
+    "timestamp": "2026-03-16T22:05:59.090301"
+  },
+  {
+    "coin": "solana",
+    "ticker": "SOL",
+    "price": 96.52,
+    "change_24h": 7.01,
+    "chart": {
+      "verdict": "HOLD_DN",
+      "event": "Downtrend (no new cross)",
+      "confidence": "LOW",
+      "sma20": 86.15,
+      "sma50": 90.91,
+      "rsi": 70.31,
+      "gap_pct": 5.244
+    },
+    "sentiment": {
+      "verdict": "UNAVAILABLE",
+      "reasoning": "No PERPLEXITY_API_KEY set. Export it as an env variable.",
+      "confidence": "N/A"
+    },
+    "decision": {
+      "final_signal": "HOLD",
+      "action": "HOLD \u2014 No clear directional signal",
+      "emoji": "\u26aa",
+      "both_agree": false,
+      "confidence": "LOW"
+    },
+    "timestamp": "2026-03-16T22:06:12.847728"
+  }
+]
