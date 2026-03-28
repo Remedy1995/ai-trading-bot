@@ -1,121 +1,70 @@
-# 🤖 AI Trading Bot
+# 🚀 Autonomous AI Crypto Trading Bot
 
-A robust, multi-layer cryptocurrency trading bot that uses a combination of **Technical Analysis (Moving Averages & RSI)** and **AI Sentiment Analysis (Perplexity)** to generate trading signals for Bitcoin, Ethereum, and Solana.
-
-This system includes a full backtesting engine and a beautiful, real-time sleek dashboard to monitor the signals!
+A high-performance algorithmic spot trading daemon built on Python, CCXT, and Next.js. The bot autonomously scans 5-minute chart intervals 24/7, searching for strict mathematical "Heavy Buy" structures before executing live market orders and tracking Take-Profits and Stop-Losses effortlessly via a beautifully designed real-time graphical web dashboard.
 
 ---
 
-## 📁 Project Overview
+## 🧠 The "Math-to-Hunt, AI-to-Veto" Strategy
+The system uses a two-stage filter specifically architected to filter out chaotic market noise and act purely on deep, verified algorithmic signals.
 
-The system is broken down into three main Python files, and a Next.js web dashboard:
+### 1. The Multi-Confluence Mathematical Engine (7 Indicators)
+To even be considered for an entry position, a coin must natively process through 7 distinct mathematical indicators. It requires a hard algorithmic score of at least **4 out of 7** strictly bullish alignments:
+1. **Exponential Moving Average (EMA) Stack:** Short-term EMAs (9, 21) must perfectly cross above long-term EMAs (50, 200).
+2. **Current Price Momentum:** The real-time live price must natively sit above both the EMA 21 and EMA 50 simultaneously.
+3. **RSI (Relative Strength Index):** Must be sitting healthily in the "expansion" zone (40–65%) preventing the bot from buying over-bought or heavily crashed assets.
+4. **MACD Histogram:** MACD line must boldly cross above its signal line, showing expanding upward MACD momentum.
+5. **Bollinger Bands:** Price must sit comfortably in the upper median of the `%B` band width (0.5 – 0.95), riding bullish momentum safely below the absolute top squeeze.
+6. **ADX & DI+ Trend Strength:** The ADX must definitively read above 20, with the positive direction index `+DI` overpowering the bearish `-DI` structure.
+7. **Volume OBV:** On-Balance Volume must be securely trending upward and breaking out over its 20-day moving average.
 
-1. `trading_bot.py`: The core live signal engine based on the 50-day vs 200-day Moving Average (Golden Cross/Death Cross).
-2. `bot_with_sentiment.py`: An advanced **v2 bot** that requires BOTH a technical chart signal AND a confirming AI news sentiment signal before trading.
-3. `backtest.py`: The historical simulator. It runs the strategy against the last 2 years of market data to output win rates, maximum drawdowns, and Sharpe ratios.
-4. `dashboard/`: A Next.js (React) front-end web app to visualize all of the bot's outputs.
+### 2. The Groq Llama 3.1 70B AI Veto
+Because mathematical indicators are strictly "rear-view looking," they cannot detect catastrophic breaking news occurring in the real world (e.g. CEO arrested, exchange hacked). As soon as the mathematical indicators trigger a `STRONG_BUY` signal, the bot automatically freezes and securely queries the ultra-fast Groq Language Model (`Llama-3.1-70b-versatile`).
 
----
-
-## 🚀 Quick Start Guide: How to Run the Bot
-
-### Prerequisites
-Make sure you have Python 3 installed, as well as the required dependencies:
-```bash
-pip3 install requests pandas numpy
-```
-
-### 1. Run the Live Strategy (Basic)
-This script fetches real-time prices and moving averages via the free CoinGecko API. 
-```bash
-python3 trading_bot.py
-```
-*Tip: It automatically saves the signals to `bot_results.json` so the dashboard can read them.*
-
-### 2. Run the Backtesting Simulator
-Want to see how the bot would have performed over the last two years? Run the backtester. It simulates starting with $10,000 and applies a strict stop-loss/take-profit risk management profile.
-```bash
-python3 backtest.py
-```
-*Tip: Watch it calculate the P&L and grade the strategy (e.g. B+, C+). Results are saved to `backtest_results.json`.*
-
-### 3. Run the Dual-Confirmation AI Bot (Advanced)
-This version queries **Perplexity AI** to get the latest news on a coin and pairs the AI's "vibe" verdict with the technical chart crossover.
-
-**Important:** You must have a free Perplexity API key to use the AI component.
-
-First, export your API key to your terminal:
-```bash
-export PERPLEXITY_API_KEY="your-api-key-here"
-```
-
-Then run the dual-layer bot:
-```bash
-python3 bot_with_sentiment.py
-```
-*If you run this without an API key, the AI Sentiment column will simply say "UNAVAILABLE" and default to HOLD.*
+The AI acts as your safety veto. It takes the current crypto coin and cross-references its behavior against general web technical/sentiment analysis and answers purely as a professional risk analyst. If the AI detects poor sentiment and returns a `BEARISH` verdict, the trade is instantly cancelled.
 
 ---
 
-## 📈 Viewing the Live Web Dashboard
+## ⏳ Trade Exits (The Waiting Game)
+Once an entry passes the Math and the AI Veto, it is securely dropped into the "Open Trades" basket. The bot draws two strict physical price lines based upon the dynamically calculated Volatility Average True Range (ATR):
+* **Take Profit Ceiling:** Your "Win" payout.
+* **Stop Loss Floor:** Your safety net.
 
-To see the bot's decisions inside incredibly clean, dark-mode technical charts and tables:
+The bot will relentlessly hold the active bag until the real-world, global market price physically floats high enough to touch the Ceiling, or drops low enough to trigger the Floor. The time between a Buy trigger and a final exit can span anywhere from 5 minutes to multiple hours depending on global volume.
 
-1. Open a new terminal tab.
-2. Navigate into the dashboard folder:
+---
+
+## 🛠️ Installation & Getting Started
+
+### 1. Install Global Requirements
+Ensure you are running **Python 3.10+** and **Node 18+**.
 ```bash
+# Install Python dependencies
+pip install pandas numpy ccxt requests python-dotenv
+
+# Install NextJS Frontend dependencies
 cd dashboard
-```
-3. Install the web dependencies (you only have to do this once):
-```bash
 npm install
 ```
-4. Start the dashboard server:
+
+### 2. Add your AI API Key
+Create a `.env` file mechanically hidden in the root of the project to cleanly host your Groq API credentials.
 ```bash
-npm run dev
+# .env
+GROQ_API_KEY=gsk_your_groq_api_token_here
 ```
-5. Open your browser and go to: [http://localhost:3000](http://localhost:3000)
 
-> **Note:** Whenever you run `python3 trading_bot.py` or `python3 backtest.py`, the JSON files update under the hood. All you have to do is refresh the browser dashboard to see the new data!
+### 3. Spin up the Dashboard
+In a secondary terminal window, build the blazing-fast production NextJS UI.
+```bash
+cd dashboard
+npm run build
+npm start
+```
+*Your UI will immediately host live on `http://localhost:3000` with the 🟢 "Bot Status" system.*
 
----
-
-## ⚙️ How the Bot Runs Under the Hood
-
-The bot is designed as a **stateless, cron-friendly script**:
-1. **Fetch**: It pulls the latest daily/hourly candlesticks for the specified coins via the CoinGecko API.
-2. **Technical Analysis**: It computes the 50-day MA, 200-day MA, and RSI(14) locally using `pandas`.
-3. **Sentiment Analysis**: It hits the Perplexity AI API to parse recent news and get a "vibe check".
-4. **Decision Fusion**: It runs identical logic on both layers. If the chart says "Buy" and AI says "Buy", the final output is `STRONG BUY`.
-5. **Execution & Alert**: If a valid signal triggers, it pushes an order to the connected exchange (via `ccxt`) and fires a webhook cleanly to Discord.
-6. **State Save**: Finally, it overwrites the `.json` report files so the React dashboard accurately displays the latest run status.
-
----
-
-## 💡 Recommended Next Steps for Production
-
-To take this from a testing script to a fully autonomous system, consider these additions:
-
-1. **Deploy on a Cloud Server (VPS)**
-   Host this repository on an AWS EC2 or DigitalOcean Droplet so it doesn't rely on your laptop being awake.
-
-2. **Automate with Cron or GitHub Actions**
-   Set up a cron job to automatically run the bot every day (or every 4 hours):
-   ```bash
-   # Opens cron editor
-   crontab -e
-   
-   # Add this line to run the bot at 8:00 AM every day
-   0 8 * * * cd /path/to/ai-trading-bot && /usr/bin/python3 bot_with_sentiment.py
-   ```
-
-3. **Turn off SIMULATION_MODE (Proceed with Caution)**
-   In `exchange_execution.py`, change `SIMULATION_MODE = True` to `False`. Ensure your exchange API keys are exported in the environment. *Only do this when you are ready to trade real money.*
-
-4. **Expand Supported Assets**
-   Currently, the bot traces BTC, ETH, and SOL. Edit the `COINS` dictionary in `bot_with_sentiment.py` to add assets like `XRP`, `ADA`, or custom altcoins.
-
----
-
-## ⚠️ Disclaimer
-**This project is for educational purposes only.** Do not connect this to real exchange APIs without thorough testing. Always use stop-losses and never risk more than 1-2% of your portfolio per trade!
+### 4. Ignite the Python Daemon
+In your main terminal window, simply launch the 24/7 daemon file.
+```bash
+python3 continuous_bot.py
+```
+The bot will silently boot, read the `.env` token securely into its isolated engine context, seamlessly scrape the market, execute AI sentiment checks, manage any hanging trades perfectly, and broadcast its JSON history dynamically across your NextJS Dashboard every 5 minutes!
