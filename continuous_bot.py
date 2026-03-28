@@ -259,7 +259,9 @@ def run_continuous_daemon():
             if not current_price: continue
 
             # --- A. Check if we are already in a trade ---
+            trade_active = False
             if symbol in state and state[symbol]['status'] == 'OPEN':
+                trade_active = True
                 new_status = manage_open_trade(exchange, symbol, state[symbol], current_price)
                 
                 if new_status != "OPEN":
@@ -286,10 +288,6 @@ def run_continuous_daemon():
                     save_state(state)
                     send_discord_alert(symbol, coin_name, f"EXIT: {new_status} | {result_str} | PNL: ${trade_pnl_usd:.2f}", current_price)
                     log_trade_history(f"{result_str} ({new_status}): {symbol} @ ${current_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
-
-                
-                # We skip buying more if we are managing an open trade
-                continue
 
             # --- B. Fetch Chart Data & Analyze ---
             df = fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250)
@@ -343,12 +341,16 @@ def run_continuous_daemon():
                 "change_24h":    0, # Simplified for continuous
                 "market_cap":    0,
                 "confluence":    conf,
-                "action":        "BUY" if verdict == "STRONG_BUY" else "HOLD",
-                "levels":        trade_levels(df, "BUY") if verdict == "STRONG_BUY" else None,
+                "action":        "HOLD" if trade_active else ("BUY" if verdict == "STRONG_BUY" else "HOLD"),
+                "levels":        trade_levels(df, "BUY") if (verdict == "STRONG_BUY" or trade_active) else None,
                 "indicators":    indicators,
                 "history":       history,
                 "timestamp":     now_str
             })
+
+            # If we are already in an active trade, skip new buy logic and move to next coin.
+            if trade_active:
+                continue
 
             if verdict == "STRONG_BUY":
                 print(f"\n  🎯 [SIGNAL TRIGGERED] {symbol} hit STRONG BUY requirements!")
