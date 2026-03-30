@@ -33,7 +33,7 @@ export async function GET() {
     const enhancedResults     = readJson(path.join(parentDir, 'enhanced_results.json'), {});
     const enhancedBacktest    = readJson(path.join(parentDir, 'enhanced_backtest_results.json'));
     const tradeHistory        = readTextLines(path.join(parentDir, 'trade_history.txt'));
-    const aggregateStats      = readJson(path.join(parentDir, 'trade_stats.json'), {});
+    const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '5m' });
 
     return NextResponse.json({
       botResults,
@@ -42,7 +42,7 @@ export async function GET() {
       enhancedResults,
       enhancedBacktest,
       tradeHistory,
-      aggregateStats,
+      settings,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {

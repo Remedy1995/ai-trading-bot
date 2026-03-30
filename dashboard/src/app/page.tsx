@@ -51,6 +51,23 @@ export default function Dashboard() {
       .catch(() => setLoading(false));
   }, []);
 
+  const updateTimeframe = async (tf: string) => {
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeframe: tf }),
+      });
+      if (res.ok) {
+        // Refresh data to show new setting
+        const d = await fetch('/api/data').then(r => r.json());
+        setData(d);
+      }
+    } catch (e) {
+      console.error('Failed to update timeframe', e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center">
@@ -66,7 +83,7 @@ export default function Dashboard() {
     enhancedResults   = {},
     enhancedBacktest  = [],
     tradeHistory      = [],
-    aggregateStats    = {},
+    settings          = { timeframe: '5m' },
     lastUpdated,
   } = data || {};
 
@@ -111,6 +128,24 @@ export default function Dashboard() {
             })()}
             <div className="text-[10px] text-slate-500 tracking-wider">
               {lastUpdated ? `LAST SCAN: ${new Date(lastUpdated).toLocaleTimeString()}` : ''}
+            </div>
+
+            {/* Timeframe Selector */}
+            <div className="flex items-center gap-1 mt-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
+              {['5m', '15m', '1h', '4h', '1d'].map((tf) => (
+                <button
+                  key={tf}
+                  onClick={() => updateTimeframe(tf)}
+                  className={clsx(
+                    "px-2 py-0.5 rounded text-[10px] font-bold transition-all",
+                    settings.timeframe === tf 
+                      ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
+                      : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                  )}
+                >
+                  {tf.toUpperCase()}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -315,28 +350,73 @@ export default function Dashboard() {
             <SectionHeader icon={<Activity className="w-5 h-5 text-indigo-400" />}
                            title="Live Execution Trade History" />
 
-            {aggregateStats && (
-               <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-                 <div className="bg-amber-950/30 border border-amber-900/50 rounded-xl p-4 text-center">
-                   <div className="text-amber-500/80 text-xs uppercase font-bold tracking-wider mb-1">Open Trades</div>
-                   <div className="text-2xl font-black text-amber-400">{aggregateStats.open_trades || 0}</div>
+            {enhancedResults?.aggregate_stats && (
+               <div className="space-y-4 mb-8">
+                 {/* Financial Metrics */}
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                   <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center shadow-lg shadow-black/20">
+                     <div className="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Total Capital Invested</div>
+                     <div className="text-2xl font-black text-slate-100 flex items-center justify-center gap-1">
+                       <span className="text-slate-500 text-sm">$</span>
+                       {(enhancedResults.aggregate_stats.total_invested_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </div>
+                   </div>
+                   <div className="bg-emerald-950/20 border border-emerald-900/50 rounded-xl p-4 text-center">
+                     <div className="text-emerald-500/80 text-[10px] uppercase font-bold tracking-widest mb-1">Gross Gains (+)</div>
+                     <div className="text-2xl font-black text-emerald-400 flex items-center justify-center gap-1">
+                       <span className="text-emerald-600 text-sm">$</span>
+                       {(enhancedResults.aggregate_stats.cumulative_gains_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </div>
+                   </div>
+                   <div className="bg-rose-950/20 border border-rose-900/50 rounded-xl p-4 text-center">
+                     <div className="text-rose-500/80 text-[10px] uppercase font-bold tracking-widest mb-1">Gross Losses (-)</div>
+                     <div className="text-2xl font-black text-rose-400 flex items-center justify-center gap-1">
+                       <span className="text-rose-600 text-sm">$</span>
+                       {(enhancedResults.aggregate_stats.cumulative_losses_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </div>
+                   </div>
+                   <div className={clsx(
+                     "border rounded-xl p-4 text-center shadow-xl",
+                     (enhancedResults.aggregate_stats.total_pnl_usd || 0) >= 0 
+                       ? "bg-indigo-900/30 border-indigo-500/50 shadow-indigo-500/10" 
+                       : "bg-rose-900/30 border-rose-500/50 shadow-rose-500/10"
+                   )}>
+                     <div className="text-indigo-400/80 text-[10px] uppercase font-bold tracking-widest mb-1">Net PnL (Final)</div>
+                     <div className={clsx(
+                       "text-2xl font-black flex items-center justify-center gap-1",
+                       (enhancedResults.aggregate_stats.total_pnl_usd || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
+                     )}>
+                       <span className="opacity-60 text-sm">$</span>
+                       {(enhancedResults.aggregate_stats.total_pnl_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </div>
+                   </div>
                  </div>
-                 <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
-                   <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Total Closed</div>
-                   <div className="text-2xl font-black text-slate-200">{aggregateStats.total_trades || 0}</div>
-                 </div>
-                 <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-xl p-4 text-center">
-                   <div className="text-emerald-500/80 text-xs uppercase font-bold tracking-wider mb-1">Successful</div>
-                   <div className="text-2xl font-black text-emerald-400">{aggregateStats.wins || 0}</div>
-                 </div>
-                 <div className="bg-rose-950/30 border border-rose-900/50 rounded-xl p-4 text-center">
-                   <div className="text-rose-500/80 text-xs uppercase font-bold tracking-wider mb-1">Failed</div>
-                   <div className="text-2xl font-black text-rose-400">{aggregateStats.losses || 0}</div>
-                 </div>
-                 <div className="bg-indigo-950/30 border border-indigo-900/50 rounded-xl p-4 text-center">
-                   <div className="text-indigo-400/80 text-xs uppercase font-bold tracking-wider mb-1">Net PnL (USD)</div>
-                   <div className="text-2xl font-black text-indigo-300">
-                     ${aggregateStats.total_pnl_usd?.toFixed(2) || '0.00'}
+
+                 {/* Trading Counts */}
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                   <div className="bg-slate-900/30 border border-slate-800/50 rounded-xl p-3 text-center">
+                     <div className="text-slate-500 text-[10px] uppercase font-bold tracking-tight mb-0.5">Total Closed</div>
+                     <div className="text-lg font-bold text-slate-300">{enhancedResults.aggregate_stats.total_trades || 0}</div>
+                   </div>
+                   <div className="bg-amber-950/20 border border-amber-900/30 rounded-xl p-3 text-center">
+                     <div className="text-amber-500/60 text-[10px] uppercase font-bold tracking-tight mb-0.5">Active Trades</div>
+                     <div className="text-lg font-bold text-amber-400">{enhancedResults.aggregate_stats.open_trades || 0}</div>
+                   </div>
+                   <div className="bg-emerald-950/10 border border-emerald-900/20 rounded-xl p-3 text-center">
+                     <div className="text-emerald-500/60 text-[10px] uppercase font-bold tracking-tight mb-0.5">Win Rate</div>
+                     <div className="text-lg font-bold text-emerald-400">
+                       {enhancedResults.aggregate_stats.total_trades > 0 
+                         ? ((enhancedResults.aggregate_stats.wins / enhancedResults.aggregate_stats.total_trades) * 100).toFixed(1) 
+                         : '0.0'}%
+                     </div>
+                   </div>
+                   <div className="bg-rose-950/10 border border-rose-900/20 rounded-xl p-3 text-center">
+                     <div className="text-rose-500/60 text-[10px] uppercase font-bold tracking-tight mb-0.5">Lose Rate</div>
+                     <div className="text-lg font-bold text-rose-400">
+                       {enhancedResults.aggregate_stats.total_trades > 0 
+                         ? ((enhancedResults.aggregate_stats.losses / enhancedResults.aggregate_stats.total_trades) * 100).toFixed(1) 
+                         : '0.0'}%
+                     </div>
                    </div>
                  </div>
                </div>
