@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.log
+*.json
+trade_history.txt
+.DS_Store
+node_modules/
+.next/
+dist/
+build/

@@ -66,6 +66,7 @@ export default function Dashboard() {
     enhancedResults   = {},
     enhancedBacktest  = [],
     tradeHistory      = [],
+    aggregateStats    = {},
     lastUpdated,
   } = data || {};
 
@@ -314,28 +315,28 @@ export default function Dashboard() {
             <SectionHeader icon={<Activity className="w-5 h-5 text-indigo-400" />}
                            title="Live Execution Trade History" />
 
-            {enhancedResults?.aggregate_stats && (
+            {aggregateStats && (
                <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
                  <div className="bg-amber-950/30 border border-amber-900/50 rounded-xl p-4 text-center">
                    <div className="text-amber-500/80 text-xs uppercase font-bold tracking-wider mb-1">Open Trades</div>
-                   <div className="text-2xl font-black text-amber-400">{enhancedResults.aggregate_stats.open_trades || 0}</div>
+                   <div className="text-2xl font-black text-amber-400">{aggregateStats.open_trades || 0}</div>
                  </div>
                  <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 text-center">
                    <div className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Total Closed</div>
-                   <div className="text-2xl font-black text-slate-200">{enhancedResults.aggregate_stats.total_trades || 0}</div>
+                   <div className="text-2xl font-black text-slate-200">{aggregateStats.total_trades || 0}</div>
                  </div>
                  <div className="bg-emerald-950/30 border border-emerald-900/50 rounded-xl p-4 text-center">
                    <div className="text-emerald-500/80 text-xs uppercase font-bold tracking-wider mb-1">Successful</div>
-                   <div className="text-2xl font-black text-emerald-400">{enhancedResults.aggregate_stats.wins || 0}</div>
+                   <div className="text-2xl font-black text-emerald-400">{aggregateStats.wins || 0}</div>
                  </div>
                  <div className="bg-rose-950/30 border border-rose-900/50 rounded-xl p-4 text-center">
                    <div className="text-rose-500/80 text-xs uppercase font-bold tracking-wider mb-1">Failed</div>
-                   <div className="text-2xl font-black text-rose-400">{enhancedResults.aggregate_stats.losses || 0}</div>
+                   <div className="text-2xl font-black text-rose-400">{aggregateStats.losses || 0}</div>
                  </div>
                  <div className="bg-indigo-950/30 border border-indigo-900/50 rounded-xl p-4 text-center">
                    <div className="text-indigo-400/80 text-xs uppercase font-bold tracking-wider mb-1">Net PnL (USD)</div>
                    <div className="text-2xl font-black text-indigo-300">
-                     ${enhancedResults.aggregate_stats.total_pnl_usd?.toFixed(2) || '0.00'}
+                     ${aggregateStats.total_pnl_usd?.toFixed(2) || '0.00'}
                    </div>
                  </div>
                </div>
