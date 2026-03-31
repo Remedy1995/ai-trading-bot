@@ -28,10 +28,9 @@ from notifier import send_discord_alert
 STATE_FILE = "open_trades.json"          # Bot's Memory (so it doesn't double-buy)
 STATS_FILE = "trade_stats.json"          # Bot's Aggregated Stats
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
-TRADE_AMOUNT_USD = 100.0                 # Dollar amount to spend per trade
-
-# Timeframe: Changed to 5-minute candles to find trades rapidly.
+TRADE_AMOUNT_USD = 11.0                 # Reduced to $11 to minimize loss impact while staying above Binance min
 TIMEFRAME = '5m'                         
+SETTINGS_FILE = "settings.json"
 
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -88,10 +87,24 @@ def save_state(state):
 
 def load_stats():
     """Loads the bot's aggregate stats."""
+    default_stats = {
+        "total_trades": 0, 
+        "wins": 0, 
+        "losses": 0, 
+        "total_pnl_usd": 0.0,
+        "total_invested_usd": 0.0,
+        "cumulative_gains_usd": 0.0,
+        "cumulative_losses_usd": 0.0
+    }
     if os.path.exists(STATS_FILE):
         with open(STATS_FILE, 'r') as f:
-            return json.load(f)
-    return {"total_trades": 0, "wins": 0, "losses": 0, "total_pnl_usd": 0.0}
+            data = json.load(f)
+            # Merge with default to ensure new keys exist
+            for k, v in default_stats.items():
+                if k not in data:
+                    data[k] = v
+            return data
+    return default_stats
 
 def save_stats(stats):
     """Saves the bot's aggregate stats to disk."""
@@ -235,6 +248,7 @@ def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_pri
 #  5. THE 24/7 CONTINUOUS LOOP (DAEMON)
 # ─────────────────────────────────────────────────────────────────
 def run_continuous_daemon():
+    global POLL_INTERVAL_SEC, TIMEFRAME
     print("\n" + "═" * 60)
     print("  🚀 STARTING 24/7 CONTINUOUS TRADING DAEMON")
     print("  Monitoring real-time prices & checking Indicators.")
@@ -247,9 +261,29 @@ def run_continuous_daemon():
         return
 
     while True:
+        # Load Dynamic Settings from Dashboard
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    settings = json.load(f)
+                    current_tf = settings.get("timeframe", "5m")
+                    if current_tf != TIMEFRAME:
+                        print(f"  ⚙️ [SETTING CHANGE] Switching timeframe to {current_tf}")
+                        TIMEFRAME = current_tf
+                        # Update interval based on timeframe (approximate for scanning)
+                        if 'm' in current_tf: 
+                            POLL_INTERVAL_SEC = int(current_tf.replace('m','')) * 60
+                        elif 'h' in current_tf:
+                            POLL_INTERVAL_SEC = int(current_tf.replace('h','')) * 3600
+                        elif 'd' in current_tf:
+                            POLL_INTERVAL_SEC = 86400
+
+            except Exception as e:
+                print(f"  [Warn] Failed to load {SETTINGS_FILE}: {e}")
+
         state = load_state()
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        print(f"\n[{now_str}] 🔍 Scanning markets...")
+        print(f"\n[{now_str}] 🔍 Scanning markets ({TIMEFRAME})...")
         
         cycle_results = []
         for symbol, coin_name in COINS.items():
@@ -275,10 +309,14 @@ def run_continuous_daemon():
                     
                     stats = load_stats()
                     stats["total_trades"] += 1
+                    
                     if is_win:
                         stats["wins"] += 1
+                        stats["cumulative_gains_usd"] += trade_pnl_usd
                     else:
                         stats["losses"] += 1
+                        stats["cumulative_losses_usd"] += abs(trade_pnl_usd)
+                        
                     stats["total_pnl_usd"] += trade_pnl_usd
                     save_stats(stats)
                     
@@ -391,6 +429,11 @@ def run_continuous_daemon():
                     }
                     save_state(state)
                     
+                    # Add to cumulative invested amount
+                    stats = load_stats()
+                    stats["total_invested_usd"] += (current_price * amount_filled)
+                    save_stats(stats)
+                    
                     send_discord_alert(
                         symbol, coin_name, "🟢 ENTER LONG", current_price, 
                         reason=f"TP: ${tp_price:.2f} | SL: ${sl_price:.2f} | Score: {conf['score']}/7"
@@ -404,7 +447,12 @@ def run_continuous_daemon():
 
         # --- D. Save to Dashboard & Sleep until next cycle ---
         stats = load_stats()
-        stats["open_trades"] = len([x for x in state.values() if x.get("status") == "OPEN"])
+        
+        open_trades_list = [x for x in state.values() if x.get("status") == "OPEN"]
+        stats["open_trades"] = len(open_trades_list)
+        
+        # We no longer overwrite total_invested_usd here, as it's tracked cumulatively on entry.
+
 
         output = {
             "strategy": "Continuous 24/7 Multi-Confluence",
