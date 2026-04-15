@@ -1,0 +1,10 @@
+**/__pycache__
+**/*.pyc
+**/*.pyo
+.env
+*.json
+*.txt
+*.log
+dashboard/node_modules
+dashboard/.next
+.git

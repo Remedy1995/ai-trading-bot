@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+
+  # ─── Python Trading Bot ──────────────────────────────────────────
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: trading_bot
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATA_DIR=/app/data
+    volumes:
+      - bot_data:/app/data
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  # ─── Next.js Dashboard ───────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: trading_dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - bot_data:/app/data:ro   # Read-only — dashboard only reads JSON files
+    environment:
+      - NODE_ENV=production
+    depends_on:
+      - bot
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  bot_data:
+    driver: local

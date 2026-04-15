@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy bot source
+COPY continuous_bot.py .
+COPY enhanced_bot.py .
+COPY notifier.py .
+COPY exchange_execution.py .
+
+# Data directory (mounted as volume in production)
+RUN mkdir -p /app/data
+
+CMD ["python", "-u", "continuous_bot.py"]

@@ -25,12 +25,20 @@ from notifier import send_discord_alert
 # ─────────────────────────────────────────────────────────────────
 #  1. BOT CONFIGURATION (24/7 DAEMON MODE)
 # ─────────────────────────────────────────────────────────────────
-STATE_FILE = "open_trades.json"          # Bot's Memory (so it doesn't double-buy)
-STATS_FILE = "trade_stats.json"          # Bot's Aggregated Stats
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# In Docker the shared volume is mounted at /app/data; locally files sit next to the script
+DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)
+STATE_FILE   = os.path.join(DATA_DIR, "open_trades.json")
+STATS_FILE   = os.path.join(DATA_DIR, "trade_stats.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+HISTORY_FILE  = os.path.join(DATA_DIR, "trade_history.txt")
+RESULTS_FILE  = os.path.join(DATA_DIR, "enhanced_results.json")
+
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
-TRADE_AMOUNT_USD = 11.0                 # Reduced to $11 to minimize loss impact while staying above Binance min
-TIMEFRAME = '5m'                         
-SETTINGS_FILE = "settings.json"
+TRADE_AMOUNT_USD = 8.0                  # $8 per trade — safe for $40 starting balance
+TIMEFRAME = '5m'
+MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this (25% of $40 balance)
+MAX_OPEN_TRADES = 2                     # Never have more than 2 trades open at once
 
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -41,10 +49,10 @@ GROQ_URL     = "https://api.groq.com/openai/v1/chat/completions"
 EXCHANGE_ID = os.environ.get("EXCHANGE_NAME", "binance") # binance, coinbase, kraken
 API_KEY = os.environ.get("EXCHANGE_API_KEY", "")
 API_SECRET = os.environ.get("EXCHANGE_API_SECRET", "")
-SIMULATION_MODE = True                   # Keep True until you are trading real money.
+SIMULATION_MODE = os.environ.get("SIMULATION_MODE", "true").lower() != "false"  # Set SIMULATION_MODE=false in .env for live trading
 
-# Standardized trading pairs for the Exchange
-COINS = {
+# Fallback coin list — used if CoinGecko dynamic fetch fails
+COINS_FALLBACK = {
     "BTC/USDT": "bitcoin",
     "ETH/USDT": "ethereum",
     "SOL/USDT": "solana",
@@ -52,8 +60,75 @@ COINS = {
     "DOGE/USDT": "dogecoin"
 }
 
+# Dynamic universe settings
+COIN_UNIVERSE_SIZE   = 20       # How many top coins to scan
+MIN_VOLUME_24H_USD   = 500_000_000  # Skip coins with < $500M daily volume (low liquidity)
+
 # ─────────────────────────────────────────────────────────────────
-#  2. EXCHANGE AND MEMORY SETUP
+#  2. DYNAMIC COIN UNIVERSE
+# ─────────────────────────────────────────────────────────────────
+
+# CoinGecko ID → CCXT symbol mapping for common coins
+_COINGECKO_TO_CCXT = {
+    "bitcoin": "BTC/USDT", "ethereum": "ETH/USDT", "tether": None,
+    "binancecoin": "BNB/USDT", "solana": "SOL/USDT", "ripple": "XRP/USDT",
+    "usd-coin": None, "staked-ether": None, "cardano": "ADA/USDT",
+    "avalanche-2": "AVAX/USDT", "dogecoin": "DOGE/USDT", "tron": "TRX/USDT",
+    "chainlink": "LINK/USDT", "polkadot": "DOT/USDT", "matic-network": "MATIC/USDT",
+    "shiba-inu": "SHIB/USDT", "litecoin": "LTC/USDT", "uniswap": "UNI/USDT",
+    "near": "NEAR/USDT", "internet-computer": "ICP/USDT", "aptos": "APT/USDT",
+    "optimism": "OP/USDT", "arbitrum": "ARB/USDT", "dogwifhat": "WIF/USDT",
+    "pepe": "PEPE/USDT", "sui": "SUI/USDT", "injective-protocol": "INJ/USDT",
+}
+
+def fetch_dynamic_coins() -> dict:
+    """
+    Fetches the top COIN_UNIVERSE_SIZE coins from CoinGecko by market cap,
+    filters out stablecoins and low-volume coins, and returns a
+    {CCXT_SYMBOL: coingecko_id} dict ready to scan.
+    Falls back to COINS_FALLBACK on any error.
+    """
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/markets"
+        params = {
+            "vs_currency": "usd",
+            "order": "market_cap_desc",
+            "per_page": 40,  # Fetch more than needed to allow for filtering
+            "page": 1,
+            "sparkline": False,
+        }
+        r = requests.get(url, params=params, timeout=15)
+        r.raise_for_status()
+        coins = r.json()
+
+        result = {}
+        for coin in coins:
+            cg_id = coin.get("id", "")
+            volume = coin.get("total_volume", 0) or 0
+            ccxt_symbol = _COINGECKO_TO_CCXT.get(cg_id)
+
+            # Skip stablecoins (no mapping), low volume, or already have enough
+            if ccxt_symbol is None or volume < MIN_VOLUME_24H_USD:
+                continue
+
+            result[ccxt_symbol] = cg_id
+            if len(result) >= COIN_UNIVERSE_SIZE:
+                break
+
+        if result:
+            print(f"  🌍 [UNIVERSE] Scanning {len(result)} coins: {', '.join(result.keys())}")
+            return result
+        else:
+            print(f"  ⚠️  [UNIVERSE] Dynamic fetch returned no coins — using fallback list.")
+            return COINS_FALLBACK
+
+    except Exception as e:
+        print(f"  ⚠️  [UNIVERSE] CoinGecko fetch failed ({e}) — using fallback list.")
+        return COINS_FALLBACK
+
+
+# ─────────────────────────────────────────────────────────────────
+#  3. EXCHANGE AND MEMORY SETUP
 # ─────────────────────────────────────────────────────────────────
 def get_exchange():
     """Connects to the real crypto exchange."""
@@ -88,13 +163,15 @@ def save_state(state):
 def load_stats():
     """Loads the bot's aggregate stats."""
     default_stats = {
-        "total_trades": 0, 
-        "wins": 0, 
-        "losses": 0, 
+        "total_trades": 0,
+        "wins": 0,
+        "losses": 0,
         "total_pnl_usd": 0.0,
         "total_invested_usd": 0.0,
         "cumulative_gains_usd": 0.0,
-        "cumulative_losses_usd": 0.0
+        "cumulative_losses_usd": 0.0,
+        "today_loss_usd": 0.0,
+        "today_date": ""
     }
     if os.path.exists(STATS_FILE):
         with open(STATS_FILE, 'r') as f:
@@ -114,13 +191,13 @@ def save_stats(stats):
 def log_trade_history(message):
     """Appends all permanent trade executions to a simple text file for easy reading."""
     from datetime import datetime
-    with open("trade_history.txt", "a") as f:
+    with open(HISTORY_FILE, "a") as f:
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         f.write(f"[{now_str}] {message}\n")
 
 
 # ─────────────────────────────────────────────────────────────────
-#  3. FAST DATA FETCHING (No Rate Limits)
+#  4. FAST DATA FETCHING (No Rate Limits)
 # ─────────────────────────────────────────────────────────────────
 def fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250):
     """
@@ -150,13 +227,94 @@ def get_current_price(exchange, symbol):
     except:
         return None
 
-def get_ai_sentiment(coin_name: str, ticker: str) -> dict:
-    """Asks Groq AI (Llama 3.1) for the current market sentiment to act as a safety veto."""
+def check_higher_timeframe(exchange, symbol: str) -> dict:
+    """
+    Fetches the 1h chart and scores confluence on it.
+    Returns a dict with 'score', 'verdict', and 'allowed' (bool).
+    A 5m STRONG_BUY is only valid if the 1h is not actively bearish (score >= -1).
+    This prevents entering a 5m signal that fights the broader trend.
+    """
+    try:
+        df_1h = fetch_ohlcv(exchange, symbol, timeframe='1h', limit=250)
+        if df_1h.empty or len(df_1h) < 200:
+            print(f"  ⚠️  [MTF] Not enough 1h data for {symbol} — skipping HTF check, proceeding.")
+            return {"score": 0, "verdict": "UNKNOWN", "allowed": True}
+
+        df_1h = build_all_indicators(df_1h)
+        conf_1h = score_confluence(df_1h)
+        score_1h = conf_1h["score"]
+        verdict_1h = conf_1h["verdict"]
+
+        # Block entry only if the 1h is clearly bearish (score <= -2)
+        allowed = score_1h >= -1
+        status = "✅ ALIGNED" if allowed else "❌ CONFLICTING"
+        print(f"  📈 [MTF 1h] Score: {score_1h}/7 ({verdict_1h}) — {status}")
+        return {"score": score_1h, "verdict": verdict_1h, "allowed": allowed}
+    except Exception as e:
+        print(f"  ⚠️  [MTF] 1h check failed ({e}) — proceeding without HTF filter.")
+        return {"score": 0, "verdict": "UNKNOWN", "allowed": True}
+
+
+def get_fear_and_greed() -> dict:
+    """
+    Fetches the Crypto Fear & Greed Index from alternative.me (free, no API key).
+    Returns a dict with 'value' (0-100) and 'label' (e.g. 'Extreme Fear').
+    Falls back to neutral on any error.
+    """
+    try:
+        r = requests.get("https://api.alternative.me/fng/?limit=1", timeout=8)
+        r.raise_for_status()
+        data = r.json()["data"][0]
+        return {"value": int(data["value"]), "label": data["value_classification"]}
+    except Exception:
+        return {"value": 50, "label": "Unknown"}
+
+
+def get_coin_24h_change(exchange, symbol: str) -> float:
+    """Fetches the 24h price change % for a symbol directly from the exchange."""
+    try:
+        ticker = exchange.fetch_ticker(symbol)
+        return round(ticker.get("percentage", 0.0) or 0.0, 2)
+    except Exception:
+        return 0.0
+
+
+def get_ai_sentiment(coin_name: str, ticker: str, exchange=None, symbol: str = "") -> dict:
+    """
+    Asks Groq AI (Llama 3.1) for market sentiment using REAL live data as context:
+      - Crypto Fear & Greed Index (alternative.me)
+      - 24h price change from the exchange
+    This prevents the AI from reasoning on stale training data alone.
+    """
     if not GROQ_API_KEY:
         return {"verdict": "NEUTRAL", "reason": "No API Key"}
 
-    prompt = f"""You are a professional crypto market analyst. 
-Based on technical factors, recent historical behavior, and typical market sentiment, analyze {coin_name} ({ticker}).
+    # Fetch real-time market context
+    fng = get_fear_and_greed()
+    change_24h = get_coin_24h_change(exchange, symbol) if (exchange and symbol) else 0.0
+
+    # Interpret Fear & Greed for the prompt
+    if fng["value"] <= 25:
+        fng_interpretation = "extremely fearful — historically a contrarian buy zone, but also signals panic selling"
+    elif fng["value"] <= 45:
+        fng_interpretation = "fearful — market is risk-off, momentum is weak"
+    elif fng["value"] <= 55:
+        fng_interpretation = "neutral — no strong crowd directional bias"
+    elif fng["value"] <= 75:
+        fng_interpretation = "greedy — momentum is strong but watch for overextension"
+    else:
+        fng_interpretation = "extremely greedy — high reversal risk, market may be near a top"
+
+    prompt = f"""You are a professional crypto risk analyst acting as a trade entry veto.
+
+LIVE MARKET DATA (right now):
+- Asset: {coin_name} ({ticker})
+- 24h Price Change: {change_24h:+.2f}%
+- Crypto Fear & Greed Index: {fng["value"]}/100 ({fng["label"]}) — {fng_interpretation}
+
+Our technical indicators have triggered a STRONG BUY signal on the 5-minute chart.
+Your job is to veto this trade ONLY if the macro sentiment is clearly BEARISH (e.g. extreme greed with negative price action, or market-wide panic collapse).
+If in doubt, return NEUTRAL — do not block good setups unnecessarily.
 
 Respond with EXACTLY this JSON format — no extra text:
 {{
@@ -169,11 +327,11 @@ Respond with EXACTLY this JSON format — no extra text:
     payload = {
         "model": GROQ_MODEL,
         "messages": [
-            {"role": "system", "content": "You are a concise, data-driven crypto analyst. Valid JSON only."},
+            {"role": "system", "content": "You are a concise, data-driven crypto risk analyst. Valid JSON only. Never add text outside the JSON."},
             {"role": "user",   "content": prompt},
         ],
         "max_tokens": 150,
-        "temperature": 0.2,
+        "temperature": 0.1,
     }
 
     try:
@@ -186,12 +344,15 @@ Respond with EXACTLY this JSON format — no extra text:
                 content = content[4:]
         content = content.strip()
         parsed = json.loads(content)
-        return {"verdict": parsed.get("sentiment", "NEUTRAL").upper(), "reason": parsed.get("key_reason", "")}
+        verdict = parsed.get("sentiment", "NEUTRAL").upper()
+        reason  = parsed.get("key_reason", "")
+        print(f"  📊 [AI CONTEXT] F&G: {fng['value']} ({fng['label']}) | 24h: {change_24h:+.2f}% | Verdict: {verdict}")
+        return {"verdict": verdict, "reason": reason}
     except Exception as e:
         return {"verdict": "NEUTRAL", "reason": f"API Error: {e}"}
 
 # ─────────────────────────────────────────────────────────────────
-#  4. ADVANCED ORDER EXECUTION & MANAGEMENT
+#  5. ADVANCED ORDER EXECUTION & MANAGEMENT
 # ─────────────────────────────────────────────────────────────────
 def manage_open_trade(exchange, symbol, trade_info, current_price):
     """
@@ -225,6 +386,31 @@ def manage_open_trade(exchange, symbol, trade_info, current_price):
     return "OPEN"
 
 
+def place_exchange_stop(exchange, symbol, amount, sl_price):
+    """
+    Places a hard stop-loss sell order directly on the exchange.
+    This protects the position even if the bot crashes or goes offline.
+    Falls back silently in simulation mode or if the exchange doesn't support it.
+    """
+    if SIMULATION_MODE or not exchange:
+        print(f"  [SIMULATION] Stop-loss order would be placed at ${sl_price:.4f}")
+        return
+
+    try:
+        # 'stop_market' is supported on Binance Futures; for spot use 'stop_loss_limit'
+        # We try stop_market first, then fall back to stop_loss_limit
+        try:
+            exchange.create_order(symbol, 'stop_market', 'sell', amount, None, {'stopPrice': sl_price})
+            print(f"  🛡️  [EXCHANGE STOP] Hard stop-market placed at ${sl_price:.4f}")
+        except Exception:
+            limit_price = round(sl_price * 0.995, 8)  # Slightly below stop to ensure fill
+            exchange.create_order(symbol, 'stop_loss_limit', 'sell', amount, limit_price, {'stopPrice': sl_price})
+            print(f"  🛡️  [EXCHANGE STOP] Hard stop-limit placed at ${sl_price:.4f} (limit: ${limit_price:.4f})")
+    except Exception as e:
+        print(f"  ⚠️  [EXCHANGE STOP] Could not place stop order — monitor manually! Error: {e}")
+        log_trade_history(f"WARNING: Failed to place exchange stop for {symbol} at ${sl_price:.4f}. Manual monitoring required. Error: {e}")
+
+
 def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_price):
     """Enters the market when all conditions are met."""
     amount = TRADE_AMOUNT_USD / current_price
@@ -245,7 +431,7 @@ def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_pri
         return None
 
 # ─────────────────────────────────────────────────────────────────
-#  5. THE 24/7 CONTINUOUS LOOP (DAEMON)
+#  6. THE 24/7 CONTINUOUS LOOP (DAEMON)
 # ─────────────────────────────────────────────────────────────────
 def run_continuous_daemon():
     global POLL_INTERVAL_SEC, TIMEFRAME
@@ -254,6 +440,11 @@ def run_continuous_daemon():
     print("  Monitoring real-time prices & checking Indicators.")
     print(f"  Interval: Every {int(POLL_INTERVAL_SEC/60)} minutes.")
     print("═" * 60)
+
+    # Tracks which coins are currently in BUY_WATCH state.
+    # Prevents spamming the same alert every 5 minutes.
+    # A coin is removed when it drops below 3/7 so it can re-alert if it recovers.
+    buy_watch_active = set()
 
     exchange = get_exchange()
     if not exchange and not SIMULATION_MODE:
@@ -283,10 +474,29 @@ def run_continuous_daemon():
 
         state = load_state()
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        today_str = datetime.now().strftime('%Y-%m-%d')
+
+        # Reset daily loss tracker if a new day has started
+        stats = load_stats()
+        if stats.get("today_date") != today_str:
+            stats["today_loss_usd"] = 0.0
+            stats["today_date"] = today_str
+            save_stats(stats)
+            print(f"  📅 New trading day — daily loss counter reset.")
+
+        # Circuit breaker check
+        daily_loss = stats.get("today_loss_usd", 0.0)
+        circuit_open = daily_loss >= MAX_DAILY_LOSS_USD
+        if circuit_open:
+            print(f"  🛑 [CIRCUIT BREAKER] Daily loss limit hit (${daily_loss:.2f} / ${MAX_DAILY_LOSS_USD:.2f}). No new trades today.")
+
         print(f"\n[{now_str}] 🔍 Scanning markets ({TIMEFRAME})...")
-        
+
+        # Refresh coin universe every cycle (catches new high-cap entrants)
+        active_coins = fetch_dynamic_coins()
+
         cycle_results = []
-        for symbol, coin_name in COINS.items():
+        for symbol, coin_name in active_coins.items():
 
             
             current_price = get_current_price(exchange, symbol)
@@ -316,6 +526,7 @@ def run_continuous_daemon():
                     else:
                         stats["losses"] += 1
                         stats["cumulative_losses_usd"] += abs(trade_pnl_usd)
+                        stats["today_loss_usd"] = stats.get("today_loss_usd", 0.0) + abs(trade_pnl_usd)
                         
                     stats["total_pnl_usd"] += trade_pnl_usd
                     save_stats(stats)
@@ -390,13 +601,29 @@ def run_continuous_daemon():
             if trade_active:
                 continue
 
+            if verdict == "STRONG_BUY" and circuit_open:
+                print(f"  ⛔ [CIRCUIT BREAKER] Skipping {symbol} STRONG_BUY — daily loss limit active.")
+                continue
+
+            open_trade_count = len([x for x in state.values() if x.get("status") == "OPEN"])
+            if verdict == "STRONG_BUY" and open_trade_count >= MAX_OPEN_TRADES:
+                print(f"  ⛔ [MAX TRADES] Already have {open_trade_count} open trades. Skipping {symbol}.")
+                continue
+
             if verdict == "STRONG_BUY":
                 print(f"\n  🎯 [SIGNAL TRIGGERED] {symbol} hit STRONG BUY requirements!")
-                
-                # --- NEW: AI SAFETY VETO ---
+                buy_watch_active.discard(symbol)  # Graduated from watch to trade
+
+                # --- MULTI-TIMEFRAME CONFIRMATION (1h must not be bearish) ---
+                htf = check_higher_timeframe(exchange, symbol)
+                if not htf["allowed"]:
+                    print(f"  🚫 [MTF BLOCK] 1h trend is bearish (score {htf['score']}/7). Skipping 5m signal.")
+                    continue
+
+                # --- AI SAFETY VETO (with live Fear & Greed + 24h data) ---
                 ticker = symbol.split('/')[0]
                 print(f"  🧠 Querying AI Sentiment safety check for {coin_name} ({ticker})...")
-                ai_sentiment = get_ai_sentiment(coin_name, ticker)
+                ai_sentiment = get_ai_sentiment(coin_name, ticker, exchange=exchange, symbol=symbol)
                 ai_verdict = ai_sentiment.get('verdict', 'NEUTRAL')
                 
                 if ai_verdict == "BEARISH":
@@ -428,6 +655,9 @@ def run_continuous_daemon():
                         "timestamp": now_str
                     }
                     save_state(state)
+
+                    # Place hard stop on exchange — protects capital if bot goes offline
+                    place_exchange_stop(exchange, symbol, amount_filled, sl_price)
                     
                     # Add to cumulative invested amount
                     stats = load_stats()
@@ -441,9 +671,27 @@ def run_continuous_daemon():
                     log_trade_history(f"🟡 OPENED LONG: {symbol} @ ${current_price:.6f} (TP: ${tp_price:.6f} | SL: ${sl_price:.6f})")
 
             
+            elif verdict == "BUY_WATCH":
+                # Score is 3/7 — setup is developing, not yet actionable
+                if symbol not in buy_watch_active:
+                    buy_watch_active.add(symbol)
+                    print(f"  👀 [BUY_WATCH] {symbol} is developing (3/7 score). Watching closely...")
+                    send_discord_alert(
+                        symbol, coin_name,
+                        f"👀 BUY_WATCH — Score 3/7. Setup developing, not yet a trade.",
+                        current_price,
+                        reason=f"Needs 1 more bullish indicator to trigger. Current price: ${current_price:.4f}"
+                    )
+                else:
+                    print(f"  👀 [BUY_WATCH] {symbol} still at 3/7. Monitoring...")
+
             else:
-                # Still waiting for the perfect setup
-                print(f"  [{symbol}] Status: Waiting. Score: {conf['score']}/7 (Needs 4/7). Current: ${current_price:.2f}")
+                # Score < 3 — clear from watchlist so it can re-alert if it returns
+                if symbol in buy_watch_active:
+                    buy_watch_active.discard(symbol)
+                    print(f"  [{symbol}] Dropped below BUY_WATCH. Removed from watchlist.")
+                else:
+                    print(f"  [{symbol}] Status: Waiting. Score: {conf['score']}/7 (Needs 4/7). Current: ${current_price:.2f}")
 
         # --- D. Save to Dashboard & Sleep until next cycle ---
         stats = load_stats()
@@ -461,7 +709,7 @@ def run_continuous_daemon():
             "aggregate_stats": stats,
             "generated": now_str,
         }
-        with open("/Users/asoribabackend/Desktop/ai-trading-bot/enhanced_results.json", "w") as f:
+        with open(RESULTS_FILE, "w") as f:
             json.dump(output, f, indent=2, default=str)
             
         print(f"\n[DASHBOARD UI UPDATED] The NextJS web interface charts have been seeded!")
