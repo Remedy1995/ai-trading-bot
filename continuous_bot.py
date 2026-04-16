@@ -305,16 +305,20 @@ def get_ai_sentiment(coin_name: str, ticker: str, exchange=None, symbol: str = "
     else:
         fng_interpretation = "extremely greedy — high reversal risk, market may be near a top"
 
-    prompt = f"""You are a professional crypto risk analyst acting as a trade entry veto.
+    prompt = f"""You are a professional crypto market analyst providing context to a trading bot.
 
 LIVE MARKET DATA (right now):
 - Asset: {coin_name} ({ticker})
 - 24h Price Change: {change_24h:+.2f}%
 - Crypto Fear & Greed Index: {fng["value"]}/100 ({fng["label"]}) — {fng_interpretation}
 
-Our technical indicators have triggered a STRONG BUY signal on the 5-minute chart.
-Your job is to veto this trade ONLY if the macro sentiment is clearly BEARISH (e.g. extreme greed with negative price action, or market-wide panic collapse).
-If in doubt, return NEUTRAL — do not block good setups unnecessarily.
+Our 7-indicator technical system has triggered a STRONG BUY signal.
+Your job is NOT to veto the trade. Instead, assess the macro sentiment and return
+an adjustment to help calibrate how strong the technical signal needs to be:
+
+- BULLISH macro: technical signal is confirmed by sentiment — normal threshold applies
+- NEUTRAL macro: no strong opinion either way — normal threshold applies
+- BEARISH macro: sentiment is against the trade — a stronger technical signal is preferred
 
 Respond with EXACTLY this JSON format — no extra text:
 {{
@@ -676,19 +680,24 @@ def run_continuous_daemon():
                     print(f"  🚫 [MTF BLOCK] 1h trend is bearish (score {htf['score']}/7). Skipping 5m signal.")
                     continue
 
-                # --- AI SAFETY VETO (with live Fear & Greed + 24h data) ---
+                # --- AI ADVISORY (raises bar in bearish macro, never blocks outright) ---
                 ticker = symbol.split('/')[0]
-                print(f"  🧠 Querying AI Sentiment safety check for {coin_name} ({ticker})...")
+                print(f"  🧠 [AI ADVISORY] Checking macro sentiment for {coin_name}...")
                 ai_sentiment = get_ai_sentiment(coin_name, ticker, exchange=exchange, symbol=symbol)
                 ai_verdict = ai_sentiment.get('verdict', 'NEUTRAL')
-                
-                if ai_verdict == "BEARISH":
-                    print(f"  ❌ [SAFETY VETO] AI detected BEARISH sentiment! Cancelling technical buy sequence.")
+                raw_score = conf["score"]
+
+                # BEARISH macro → need score >= 5 to enter (stronger confirmation required)
+                # BULLISH/NEUTRAL macro → normal 4/7 threshold applies
+                required_score = 5 if ai_verdict == "BEARISH" else 4
+
+                if raw_score < required_score:
+                    print(f"  ⚠️  [AI ADVISORY] Macro is {ai_verdict} — need {required_score}/7, got {raw_score}/7. Skipping.")
                     print(f"     Reason: {ai_sentiment.get('reason')}")
                     continue
                 else:
-                    print(f"  ✅ [AI CLEARED] AI permits trade (Sentiment: {ai_verdict})")
-                
+                    print(f"  ✅ [AI ADVISORY] Macro: {ai_verdict} | Score {raw_score}/7 >= {required_score} required. Proceeding.")
+
                 for signal in conf["signals"]:
                     if signal["bias"] == "BULL":
                         print(f"     + {signal['note']}")
