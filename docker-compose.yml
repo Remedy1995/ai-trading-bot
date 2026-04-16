@@ -31,6 +31,7 @@ services:
       - bot_data:/app/data:ro   # Read-only — dashboard only reads JSON files
     environment:
       - NODE_ENV=production
+      - DATA_DIR=/app/data
     depends_on:
       - bot
     logging:

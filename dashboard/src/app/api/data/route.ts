@@ -25,7 +25,7 @@ function readTextLines(filePath: string) {
 
 export async function GET() {
   try {
-    const parentDir = path.resolve(process.cwd(), '..');
+    const parentDir = process.env.DATA_DIR || path.resolve(process.cwd(), '..');
 
     const botResults          = readJson(path.join(parentDir, 'bot_results.json'));
     const backtestResults     = readJson(path.join(parentDir, 'backtest_results.json'));

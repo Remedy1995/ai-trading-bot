@@ -5,7 +5,7 @@ import path from 'path';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const parentDir = path.resolve(process.cwd(), '..');
+    const parentDir = process.env.DATA_DIR || path.resolve(process.cwd(), '..');
     const settingsPath = path.join(parentDir, 'settings.json');
 
     let settings = { timeframe: '5m' };
