@@ -2,9 +2,15 @@
 **/*.pyc
 **/*.pyo
 .env
-*.json
-*.txt
 *.log
+bot_results.json
+enhanced_results.json
+open_trades.json
+trade_stats.json
+backtest_results.json
+enhanced_backtest_results.json
+sentiment_results.json
+trade_history.txt
 dashboard/node_modules
 dashboard/.next
 .git
