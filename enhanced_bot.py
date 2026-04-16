@@ -79,7 +79,7 @@ MACD_SIGNAL_P   = 9
 # RSI
 RSI_PERIOD      = 14
 RSI_BULL_LOW    = 40       # Healthy uptrend floor
-RSI_BULL_HIGH   = 65       # Healthy uptrend ceiling
+RSI_BULL_HIGH   = 70       # Healthy uptrend ceiling
 RSI_OB          = 75       # Overbought → bearish vote
 RSI_OS          = 30       # Oversold  → neutral (no bear vote)
 
@@ -87,12 +87,12 @@ RSI_OS          = 30       # Oversold  → neutral (no bear vote)
 BB_PERIOD       = 20
 BB_STD          = 2.0
 BB_BULL_LOW     = 0.45     # %B above this → bullish
-BB_BULL_HIGH    = 0.90     # %B above this → overbought, no bull vote
+BB_BULL_HIGH    = 0.95     # %B above this → overbought, no bull vote
 
 # ATR-based stops
 ATR_PERIOD      = 14
 ATR_STOP_MULT   = 1.5      # Stop  = Entry ± 1.5 × ATR
-ATR_TARGET_MULT = 3.0      # Target = Entry ± 3.0 × ATR  → 2:1 R:R
+ATR_TARGET_MULT = 2.0      # Target = Entry ± 2.0 × ATR  → hits faster, still 1.3:1 R:R
 
 # ADX trend-strength filter
 ADX_PERIOD      = 14
@@ -103,7 +103,8 @@ ADX_STRONG      = 25       # Strong trend threshold
 MIN_BULL_SCORE  = 4        # Need ≥4 bullish votes out of 7 to BUY
 MIN_BEAR_SCORE  = -4       # Need ≤-4 bearish votes out of 7 to SELL
 
-OUTPUT_FILE     = "enhanced_results.json"
+BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE     = os.path.join(BASE_DIR, "enhanced_results.json")
 RATE_LIMIT_SLEEP = 15      # seconds between CoinGecko calls
 
 
