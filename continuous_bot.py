@@ -354,6 +354,50 @@ Respond with EXACTLY this JSON format — no extra text:
 # ─────────────────────────────────────────────────────────────────
 #  5. ADVANCED ORDER EXECUTION & MANAGEMENT
 # ─────────────────────────────────────────────────────────────────
+def get_actual_balance(exchange, symbol):
+    """
+    Fetches the actual free balance for the base asset of a symbol from Binance.
+    e.g. for ETH/USDT returns the free ETH balance.
+    Used to avoid InsufficientFunds errors caused by amount precision mismatches.
+    """
+    try:
+        base_asset = symbol.split('/')[0]
+        balance = exchange.fetch_balance()
+        free = balance.get(base_asset, {}).get('free', 0.0)
+        return float(free) if free else 0.0
+    except Exception as e:
+        print(f"  ⚠️  Could not fetch {symbol} balance: {e}")
+        return 0.0
+
+
+def execute_sell(exchange, symbol, amount, reason):
+    """
+    Executes a market sell. Fetches actual Binance balance first to avoid
+    InsufficientFunds errors from precision mismatches. Never crashes the daemon.
+    """
+    if SIMULATION_MODE or not exchange:
+        print(f"  [SIMULATION] SOLD {amount:.6f} {symbol} ({reason})")
+        return True
+
+    try:
+        # Use actual exchange balance — more reliable than stored amount
+        actual_amount = get_actual_balance(exchange, symbol)
+        if actual_amount <= 0:
+            print(f"  ⚠️  [{reason}] No balance found for {symbol} — may already be sold.")
+            return True  # Treat as closed to clear from state
+
+        # Binance requires correct precision — let ccxt handle it
+        market = exchange.market(symbol)
+        sell_amount = exchange.amount_to_precision(symbol, actual_amount)
+        exchange.create_market_order(symbol, 'sell', float(sell_amount))
+        print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
+        return True
+    except Exception as e:
+        print(f"  ❌ [{reason}] Sell failed for {symbol}: {e}. Will retry next cycle.")
+        log_trade_history(f"SELL FAILED ({reason}): {symbol} — {e}")
+        return False
+
+
 def manage_open_trade(exchange, symbol, trade_info, current_price):
     """
     Software Bracket Order (OCO Handler).
@@ -367,18 +411,16 @@ def manage_open_trade(exchange, symbol, trade_info, current_price):
     # 1. Take Profit Hit?
     if current_price >= tp_price:
         print(f"  🟢 [TAKE PROFIT TRIGGERED] {symbol} hit {current_price}! Selling.")
-        if not SIMULATION_MODE and exchange:
-            exchange.create_market_order(symbol, 'sell', amount)
-            
-        return "CLOSED_TAKE_PROFIT"
+        if execute_sell(exchange, symbol, amount, "TAKE PROFIT"):
+            return "CLOSED_TAKE_PROFIT"
+        return "OPEN"  # Sell failed — keep monitoring and retry next cycle
 
     # 2. Stop Loss Hit?
     elif current_price <= sl_price:
         print(f"  🔴 [STOP LOSS TRIGGERED] {symbol} dropped to {current_price}! Selling to protect capital.")
-        if not SIMULATION_MODE and exchange:
-            exchange.create_market_order(symbol, 'sell', amount)
-            
-        return "CLOSED_STOP_LOSS"
+        if execute_sell(exchange, symbol, amount, "STOP LOSS"):
+            return "CLOSED_STOP_LOSS"
+        return "OPEN"  # Sell failed — keep monitoring and retry next cycle
 
     # Wait
     pnl = ((current_price - buy_price) / buy_price) * 100
