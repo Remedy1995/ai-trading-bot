@@ -93,6 +93,7 @@ BB_BULL_HIGH    = 0.95     # %B above this → overbought, no bull vote
 ATR_PERIOD      = 14
 ATR_STOP_MULT   = 1.5      # Stop  = Entry ± 1.5 × ATR
 ATR_TARGET_MULT = 2.0      # Target = Entry ± 2.0 × ATR  → hits faster, still 1.3:1 R:R
+ATR_TRAIL_MULT  = 2.0      # Trailing stop = 2.0 × ATR below highest price reached
 
 # ADX trend-strength filter
 ADX_PERIOD      = 14

@@ -19,7 +19,7 @@ import pandas as pd
 import numpy as np
 
 # Reuse the powerful mathematics already built in your enhanced_bot
-from enhanced_bot import build_all_indicators, score_confluence, trade_levels
+from enhanced_bot import build_all_indicators, score_confluence, trade_levels, ATR_TRAIL_MULT
 from notifier import send_discord_alert
 
 # ─────────────────────────────────────────────────────────────────
@@ -400,31 +400,43 @@ def execute_sell(exchange, symbol, amount, reason):
 
 def manage_open_trade(exchange, symbol, trade_info, current_price):
     """
-    Software Bracket Order (OCO Handler).
-    The bot monitors the live price itself and acts as the trigger.
+    Trailing Stop Handler.
+    - Hard SL = fixed floor (protects against flash crashes)
+    - Trailing stop = rises with price, sells when price pulls back ATR_TRAIL_MULT × ATR
+    This lets winners run instead of capping profit at a fixed TP.
     """
-    tp_price = trade_info["take_profit"]
-    sl_price = trade_info["stop_loss"]
-    buy_price = trade_info["buy_price"]
-    amount = trade_info["amount"]
+    hard_sl    = trade_info["stop_loss"]
+    buy_price  = trade_info["buy_price"]
+    amount     = trade_info["amount"]
+    trail_atr  = trade_info.get("trail_atr", 0)
 
-    # 1. Take Profit Hit?
-    if current_price >= tp_price:
-        print(f"  🟢 [TAKE PROFIT TRIGGERED] {symbol} hit {current_price}! Selling.")
-        if execute_sell(exchange, symbol, amount, "TAKE PROFIT"):
-            return "CLOSED_TAKE_PROFIT"
-        return "OPEN"  # Sell failed — keep monitoring and retry next cycle
+    # Ratchet highest price up (never down)
+    highest = max(trade_info.get("highest_price", buy_price), current_price)
+    trade_info["highest_price"] = highest
 
-    # 2. Stop Loss Hit?
-    elif current_price <= sl_price:
-        print(f"  🔴 [STOP LOSS TRIGGERED] {symbol} dropped to {current_price}! Selling to protect capital.")
+    # Trailing stop = highest price reached minus 2×ATR — rises with price, never drops
+    trail_stop = highest - (ATR_TRAIL_MULT * trail_atr) if trail_atr > 0 else hard_sl
+    # Trailing stop can only ever be above the hard SL
+    effective_stop = max(trail_stop, hard_sl)
+
+    pnl = ((current_price - buy_price) / buy_price) * 100
+
+    # 1. Hard Stop Loss Hit? (flash crash protection)
+    if current_price <= hard_sl:
+        print(f"  🔴 [HARD STOP TRIGGERED] {symbol} dropped to ${current_price:.4f}! Protecting capital.")
         if execute_sell(exchange, symbol, amount, "STOP LOSS"):
             return "CLOSED_STOP_LOSS"
-        return "OPEN"  # Sell failed — keep monitoring and retry next cycle
+        return "OPEN"
 
-    # Wait
-    pnl = ((current_price - buy_price) / buy_price) * 100
-    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Live: ${current_price:.2f} | Wait for TP: ${tp_price:.2f} or SL: ${sl_price:.2f}")
+    # 2. Trailing Stop Hit? (price pulled back from peak)
+    if current_price <= effective_stop and highest > buy_price:
+        print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. Locking in profit.")
+        if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
+            return "CLOSED_TAKE_PROFIT"
+        return "OPEN"
+
+    # Still running — show how far the trailing stop has ratcheted up
+    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Price: ${current_price:.4f} | Peak: ${highest:.4f} | Trail stop: ${effective_stop:.4f}")
     return "OPEN"
 
 
@@ -549,7 +561,9 @@ def run_continuous_daemon():
             if symbol in state and state[symbol]['status'] == 'OPEN':
                 trade_active = True
                 new_status = manage_open_trade(exchange, symbol, state[symbol], current_price)
-                
+                # Persist updated highest_price so trailing stop survives bot restarts
+                save_state(state)
+
                 if new_status != "OPEN":
                     # Trade closed. Calculate PNL and Win/Loss
                     buy_price = state[symbol]['buy_price']
@@ -694,6 +708,8 @@ def run_continuous_daemon():
                         "amount": amount_filled,
                         "stop_loss": sl_price,
                         "take_profit": tp_price,
+                        "trail_atr": levels["atr"],        # ATR at entry — drives the trailing stop distance
+                        "highest_price": current_price,    # Will ratchet up as price climbs
                         "timestamp": now_str
                     }
                     save_state(state)
