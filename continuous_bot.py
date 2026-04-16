@@ -404,12 +404,13 @@ def execute_sell(exchange, symbol, amount, reason):
 
 def manage_open_trade(exchange, symbol, trade_info, current_price):
     """
-    Trailing Stop Handler.
-    - Hard SL = fixed floor (protects against flash crashes)
+    Hybrid Exit Handler — Fixed TP + Trailing Stop (whichever hits first).
+    - Fixed TP    = sells immediately when price reaches the target
     - Trailing stop = rises with price, sells when price pulls back ATR_TRAIL_MULT × ATR
-    This lets winners run instead of capping profit at a fixed TP.
+    - Hard SL     = fixed floor, fires instantly on a crash
     """
     hard_sl    = trade_info["stop_loss"]
+    tp_price   = trade_info["take_profit"]
     buy_price  = trade_info["buy_price"]
     amount     = trade_info["amount"]
     trail_atr  = trade_info.get("trail_atr", 0)
@@ -425,22 +426,29 @@ def manage_open_trade(exchange, symbol, trade_info, current_price):
 
     pnl = ((current_price - buy_price) / buy_price) * 100
 
-    # 1. Hard Stop Loss Hit? (flash crash protection)
+    # 1. Fixed Take Profit Hit? → sell immediately, lock in guaranteed profit
+    if current_price >= tp_price:
+        print(f"  🎯 [TAKE PROFIT] {symbol} hit target ${tp_price:.4f}! Selling at ${current_price:.4f}.")
+        if execute_sell(exchange, symbol, amount, "TAKE PROFIT"):
+            return "CLOSED_TAKE_PROFIT"
+        return "OPEN"
+
+    # 2. Hard Stop Loss Hit? (flash crash protection)
     if current_price <= hard_sl:
         print(f"  🔴 [HARD STOP TRIGGERED] {symbol} dropped to ${current_price:.4f}! Protecting capital.")
         if execute_sell(exchange, symbol, amount, "STOP LOSS"):
             return "CLOSED_STOP_LOSS"
         return "OPEN"
 
-    # 2. Trailing Stop Hit? (price pulled back from peak)
+    # 3. Trailing Stop Hit? (price pulled back from peak before reaching TP)
     if current_price <= effective_stop and highest > buy_price:
         print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. Locking in profit.")
         if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
             return "CLOSED_TAKE_PROFIT"
         return "OPEN"
 
-    # Still running — show how far the trailing stop has ratcheted up
-    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Price: ${current_price:.4f} | Peak: ${highest:.4f} | Trail stop: ${effective_stop:.4f}")
+    # Still running
+    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Price: ${current_price:.4f} | TP: ${tp_price:.4f} | Trail stop: ${effective_stop:.4f}")
     return "OPEN"
 
 
