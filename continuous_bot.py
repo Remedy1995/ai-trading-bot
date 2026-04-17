@@ -360,15 +360,17 @@ Respond with EXACTLY this JSON format — no extra text:
 # ─────────────────────────────────────────────────────────────────
 def get_actual_balance(exchange, symbol):
     """
-    Fetches the actual free balance for the base asset of a symbol from Binance.
-    e.g. for ETH/USDT returns the free ETH balance.
-    Used to avoid InsufficientFunds errors caused by amount precision mismatches.
+    Fetches the sellable balance for the base asset of a symbol from Binance.
+    Uses 'free' balance first. If free is too small (locked in a stop order),
+    falls back to 'total' balance so we can still sell.
     """
     try:
         base_asset = symbol.split('/')[0]
         balance = exchange.fetch_balance()
-        free = balance.get(base_asset, {}).get('free', 0.0)
-        return float(free) if free else 0.0
+        free  = float(balance.get(base_asset, {}).get('free',  0.0) or 0.0)
+        total = float(balance.get(base_asset, {}).get('total', 0.0) or 0.0)
+        # If free balance is too small (locked in exchange stop order), use total
+        return free if free >= 0.0001 else total
     except Exception as e:
         print(f"  ⚠️  Could not fetch {symbol} balance: {e}")
         return 0.0
