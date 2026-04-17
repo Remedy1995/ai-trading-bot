@@ -325,8 +325,8 @@ export default function Dashboard() {
                           ))}
                         </div>
 
-                        {/* Trade levels */}
-                        {lvl && (
+                        {/* Trade levels — hidden when IN TRADE to avoid duplicate info */}
+                        {lvl && !isInTrade && (
                           <div className="border-t border-slate-800 pt-3 space-y-1 text-sm">
                             <div className="flex justify-between">
                               <span className="text-slate-500">Entry</span>
