@@ -378,15 +378,24 @@ def get_actual_balance(exchange, symbol):
 
 def execute_sell(exchange, symbol, amount, reason):
     """
-    Executes a market sell. Fetches actual Binance balance first to avoid
-    InsufficientFunds errors from precision mismatches. Never crashes the daemon.
+    Executes a market sell. Cancels any open stop orders first to free locked
+    balance, then sells. Never crashes the daemon.
     """
     if SIMULATION_MODE or not exchange:
         print(f"  [SIMULATION] SOLD {amount:.6f} {symbol} ({reason})")
         return True
 
     try:
-        # Use actual exchange balance — more reliable than stored amount
+        # Cancel any open stop orders first — they lock the asset and block selling
+        try:
+            open_orders = exchange.fetch_open_orders(symbol)
+            for order in open_orders:
+                exchange.cancel_order(order['id'], symbol)
+                print(f"  🗑️  Cancelled open stop order {order['id']} for {symbol}")
+        except Exception as cancel_err:
+            print(f"  ⚠️  Could not cancel open orders for {symbol}: {cancel_err}")
+
+        # Now fetch the freed balance
         actual_amount = get_actual_balance(exchange, symbol)
         if actual_amount <= 0:
             print(f"  ⚠️  [{reason}] No balance found for {symbol} — may already be sold.")
