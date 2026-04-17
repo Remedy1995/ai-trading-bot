@@ -38,7 +38,7 @@ POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
 TRADE_AMOUNT_USD = 8.0                  # $8 per trade — safe for $40 starting balance
 TIMEFRAME = '5m'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this (25% of $40 balance)
-MAX_OPEN_TRADES = 2                     # Never have more than 2 trades open at once
+MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades ($8×3=$24 of $28 balance)
 
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
