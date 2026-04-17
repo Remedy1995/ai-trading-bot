@@ -84,10 +84,27 @@ export default function Dashboard() {
     enhancedBacktest  = [],
     tradeHistory      = [],
     settings          = { timeframe: '5m' },
+    tradeState        = {},
     lastUpdated,
   } = data || {};
 
   const enhancedCoins: any[] = enhancedResults?.results ?? [];
+
+  // Map coin ticker → trade status
+  const openTradeCount = Object.values(tradeState as Record<string, any>).filter((t: any) => t.status === 'OPEN').length;
+  const MAX_TRADES = 3;
+
+  function getTradeStatus(coin: any): { label: string; style: string; emoji: string } {
+    const ticker = coin.ticker + '/USDT';
+    const inTrade = (tradeState as Record<string, any>)[ticker]?.status === 'OPEN';
+    const verdict = coin.confluence?.verdict ?? 'NEUTRAL';
+
+    if (inTrade) return { label: 'IN TRADE', style: 'bg-yellow-500/20 text-yellow-300 border border-yellow-600', emoji: '🟡' };
+    if (verdict === 'STRONG_BUY' && openTradeCount < MAX_TRADES) return { label: 'READY', style: 'bg-emerald-500/20 text-emerald-300 border border-emerald-600', emoji: '🟢' };
+    if (verdict === 'STRONG_BUY' && openTradeCount >= MAX_TRADES) return { label: 'QUEUED', style: 'bg-blue-500/20 text-blue-300 border border-blue-600', emoji: '⏳' };
+    if (verdict === 'BUY_WATCH') return { label: 'WATCHING', style: 'bg-slate-700/40 text-slate-400 border border-slate-600', emoji: '👀' };
+    return { label: 'WAITING', style: 'bg-slate-800/40 text-slate-500 border border-slate-700', emoji: '⏸️' };
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 font-sans">
@@ -211,15 +228,19 @@ export default function Dashboard() {
                     const isBuy   = verdict === 'STRONG_BUY';
                     const isSell  = verdict === 'STRONG_SELL';
                     const ind     = coin.indicators ?? {};
+                    const ts      = getTradeStatus(coin);
+                    const isInTrade = ts.label === 'IN TRADE';
+                    const openTrade = (tradeState as Record<string, any>)[coin.ticker + '/USDT'];
 
                     return (
                       <div
                         key={coin.coin}
                         className={clsx(
                           'rounded-xl border p-6 space-y-4',
-                          isBuy  ? 'bg-emerald-950/25 border-emerald-800/60' :
-                          isSell ? 'bg-rose-950/25 border-rose-800/60' :
-                                   'bg-slate-900/40 border-slate-800',
+                          isInTrade ? 'bg-yellow-950/20 border-yellow-700/60' :
+                          isBuy     ? 'bg-emerald-950/25 border-emerald-800/60' :
+                          isSell    ? 'bg-rose-950/25 border-rose-800/60' :
+                                      'bg-slate-900/40 border-slate-800',
                         )}
                       >
                         {/* Header */}
@@ -228,8 +249,37 @@ export default function Dashboard() {
                             <div className="text-2xl font-extrabold">{coin.ticker}</div>
                             <div className="text-xs text-slate-500 uppercase">{coin.coin}</div>
                           </div>
-                          <VerdictBadge v={verdict} />
+                          <div className="flex flex-col items-end gap-1">
+                            <VerdictBadge v={verdict} />
+                            <span className={clsx('px-2 py-0.5 rounded text-xs font-bold tracking-wide', ts.style)}>
+                              {ts.emoji} {ts.label}
+                            </span>
+                          </div>
                         </div>
+
+                        {/* In-trade live stats */}
+                        {isInTrade && openTrade && (
+                          <div className="bg-yellow-950/30 border border-yellow-800/40 rounded-lg p-3 space-y-1 text-xs">
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Bought at</span>
+                              <span className="font-bold text-yellow-300">${openTrade.buy_price?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Take Profit</span>
+                              <span className="font-bold text-emerald-400">${openTrade.take_profit?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">Stop Loss</span>
+                              <span className="font-bold text-rose-400">${openTrade.stop_loss?.toLocaleString(undefined, { maximumFractionDigits: 4 })}</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-slate-400">P&L</span>
+                              <span className={clsx('font-bold', ((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                                {((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100).toFixed(2)}%
+                              </span>
+                            </div>
+                          </div>
+                        )}
 
                         {/* Price */}
                         <div className="flex items-end gap-2">

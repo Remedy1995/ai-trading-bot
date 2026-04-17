@@ -34,6 +34,7 @@ export async function GET() {
     const enhancedBacktest    = readJson(path.join(parentDir, 'enhanced_backtest_results.json'));
     const tradeHistory        = readTextLines(path.join(parentDir, 'trade_history.txt'));
     const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '5m' });
+    const tradeState          = readJson(path.join(parentDir, 'state.json'), {});
 
     return NextResponse.json({
       botResults,
@@ -43,6 +44,7 @@ export async function GET() {
       enhancedBacktest,
       tradeHistory,
       settings,
+      tradeState,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {
