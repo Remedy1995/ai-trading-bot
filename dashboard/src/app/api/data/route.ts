@@ -27,14 +27,20 @@ export async function GET() {
   try {
     const parentDir = process.env.DATA_DIR || path.resolve(process.cwd(), '..');
 
+    // Single source of truth for all real-time data
+    const botState            = readJson(path.join(parentDir, 'bot_state.json'), {});
+
+    // Static / historical files (not real-time)
     const botResults          = readJson(path.join(parentDir, 'bot_results.json'));
     const backtestResults     = readJson(path.join(parentDir, 'backtest_results.json'));
     const sentimentResults    = readJson(path.join(parentDir, 'sentiment_results.json'));
-    const enhancedResults     = readJson(path.join(parentDir, 'enhanced_results.json'), {});
     const enhancedBacktest    = readJson(path.join(parentDir, 'enhanced_backtest_results.json'));
     const tradeHistory        = readTextLines(path.join(parentDir, 'trade_history.txt'));
     const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '5m' });
-    const tradeState          = readJson(path.join(parentDir, 'open_trades.json'), {});
+
+    // Extract from single source of truth
+    const enhancedResults     = { results: botState.signals ?? [], generated: botState.generated };
+    const tradeState          = botState.open_trades ?? {};
 
     return NextResponse.json({
       botResults,

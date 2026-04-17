@@ -28,11 +28,12 @@ from notifier import send_discord_alert
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # In Docker the shared volume is mounted at /app/data; locally files sit next to the script
 DATA_DIR = os.environ.get("DATA_DIR", BASE_DIR)
-STATE_FILE   = os.path.join(DATA_DIR, "open_trades.json")
-STATS_FILE   = os.path.join(DATA_DIR, "trade_stats.json")
-SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
-HISTORY_FILE  = os.path.join(DATA_DIR, "trade_history.txt")
-RESULTS_FILE  = os.path.join(DATA_DIR, "enhanced_results.json")
+STATE_FILE      = os.path.join(DATA_DIR, "open_trades.json")
+STATS_FILE      = os.path.join(DATA_DIR, "trade_stats.json")
+SETTINGS_FILE   = os.path.join(DATA_DIR, "settings.json")
+HISTORY_FILE    = os.path.join(DATA_DIR, "trade_history.txt")
+RESULTS_FILE    = os.path.join(DATA_DIR, "enhanced_results.json")
+BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of truth for dashboard
 
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
 TRADE_AMOUNT_USD = 8.0                  # $8 per trade — safe for $40 starting balance
@@ -798,7 +799,17 @@ def run_continuous_daemon():
         }
         with open(RESULTS_FILE, "w") as f:
             json.dump(output, f, indent=2, default=str)
-            
+
+        # Single source of truth — combines everything the dashboard needs into one file
+        bot_state = {
+            "generated":   now_str,
+            "signals":     cycle_results,
+            "open_trades": state,
+            "stats":       stats,
+        }
+        with open(BOT_STATE_FILE, "w") as f:
+            json.dump(bot_state, f, indent=2, default=str)
+
         print(f"\n[DASHBOARD UI UPDATED] The NextJS web interface charts have been seeded!")
         print(f"💤 Cycle complete. Sleeping for {int(POLL_INTERVAL_SEC/60)} minutes...")
         time.sleep(POLL_INTERVAL_SEC)
