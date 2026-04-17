@@ -95,7 +95,7 @@ export default function Dashboard() {
   const MAX_TRADES = 3;
 
   function getTradeStatus(coin: any): { label: string; style: string; emoji: string } {
-    const ticker = coin.ticker + '/USDT';
+    const ticker = coin.symbol ?? (coin.ticker + '/USDT');
     const inTrade = (tradeState as Record<string, any>)[ticker]?.status === 'OPEN';
     const verdict = coin.confluence?.verdict ?? 'NEUTRAL';
 
@@ -230,7 +230,7 @@ export default function Dashboard() {
                     const ind     = coin.indicators ?? {};
                     const ts      = getTradeStatus(coin);
                     const isInTrade = ts.label === 'IN TRADE';
-                    const openTrade = (tradeState as Record<string, any>)[coin.ticker + '/USDT'];
+                    const openTrade = (tradeState as Record<string, any>)[coin.symbol ?? (coin.ticker + '/USDT')];
 
                     return (
                       <div

@@ -665,6 +665,7 @@ def run_continuous_daemon():
             cycle_results.append({
                 "coin":          coin_name.lower(),
                 "ticker":        coin_name.upper(),
+                "symbol":        symbol,   # e.g. ETH/USDT — used by dashboard to match state.json
                 "current_price": current_price,
                 "change_24h":    0, # Simplified for continuous
                 "market_cap":    0,
