@@ -8,23 +8,11 @@ interface CandleData {
   high: number;
   low: number;
   close: number;
-  volume: number;
-  ema9: number;
-  ema21: number;
-  ema50: number;
-  ema200: number;
-  bb_upper: number;
-  bb_mid: number;
-  bb_lower: number;
-  rsi: number;
-  macd: number;
-  macd_sig: number;
-  macd_hist: number;
-  adx: number;
-  plus_di: number;
-  minus_di: number;
-  obv: number;
-  obv_ema: number;
+  ema9: number; ema21: number; ema50: number; ema200: number;
+  bb_upper: number; bb_mid: number; bb_lower: number;
+  rsi: number; macd: number; macd_sig: number; macd_hist: number;
+  adx: number; plus_di: number; minus_di: number;
+  obv: number; obv_ema: number; volume: number;
 }
 
 interface TradingLevels {
@@ -38,49 +26,73 @@ interface Props {
   history: CandleData[];
   levels?: TradingLevels | null;
   symbol: string;
+  signals?: { id: string; bias: string; note: string }[];
+  score?: number;
 }
 
-export default function TradingChart({ history, levels, symbol }: Props) {
-  const mainRef = useRef<HTMLDivElement>(null);
-  const rsiRef  = useRef<HTMLDivElement>(null);
-  const macdRef = useRef<HTMLDivElement>(null);
-  const adxRef  = useRef<HTMLDivElement>(null);
-  const obvRef  = useRef<HTMLDivElement>(null);
+// ── Indicator Scorecard ───────────────────────────────────────────
+function IndicatorCard({ id, bias, note }: { id: string; bias: string; note: string }) {
+  const isBull = bias === 'BULL';
+  const isBear = bias === 'BEAR';
+
+  const label: Record<string, string> = {
+    EMA_STACK:  'Trend Structure',
+    EMA_MOM:    'Price Momentum',
+    MACD:       'MACD Momentum',
+    RSI:        'RSI Strength',
+    BB:         'Bollinger Bands',
+    ADX:        'Trend Strength',
+    OBV:        'Volume Flow',
+  };
+
+  return (
+    <div className={`flex items-start gap-2 rounded-lg p-2.5 border ${
+      isBull ? 'bg-emerald-950/30 border-emerald-800/40' :
+      isBear ? 'bg-red-950/30 border-red-800/40' :
+               'bg-slate-900/50 border-slate-800'
+    }`}>
+      <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 ${
+        isBull ? 'bg-emerald-500 text-white' :
+        isBear ? 'bg-red-500 text-white' :
+                 'bg-slate-700 text-slate-400'
+      }`}>
+        {isBull ? '↑' : isBear ? '↓' : '–'}
+      </div>
+      <div className="min-w-0">
+        <div className={`text-[10px] font-black uppercase tracking-wider ${
+          isBull ? 'text-emerald-400' : isBear ? 'text-red-400' : 'text-slate-500'
+        }`}>{label[id] ?? id}</div>
+        <div className="text-[10px] text-slate-400 leading-tight mt-0.5 truncate">{note}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Main Chart (candlesticks + key levels only) ───────────────────
+function PriceChart({ history, levels }: { history: CandleData[]; levels?: TradingLevels | null }) {
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!history?.length || !mainRef.current || !rsiRef.current || !macdRef.current || !adxRef.current || !obvRef.current) return;
-
-    const charts: any[] = [];
+    if (!history?.length || !ref.current) return;
+    let chart: any;
 
     import('lightweight-charts').then((lc) => {
-      const {
-        createChart, CrosshairMode, LineStyle,
-        CandlestickSeries, LineSeries, HistogramSeries,
-      } = lc as any;
+      const { createChart, CrosshairMode, LineStyle, CandlestickSeries, LineSeries } = lc as any;
+
+      chart = createChart(ref.current!, {
+        width:  ref.current!.clientWidth,
+        height: 280,
+        layout:          { background: { color: '#0f172a' }, textColor: '#94a3b8' },
+        grid:            { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
+        crosshair:       { mode: CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#334155' },
+        timeScale:       { borderColor: '#334155', timeVisible: true, secondsVisible: false },
+      });
 
       const toTs = (d: string) => Math.floor(new Date(d).getTime() / 1000);
 
-      const makeChart = (el: HTMLDivElement, height: number) => {
-        const c = createChart(el, {
-          width:  el.clientWidth,
-          height,
-          layout:          { background: { color: '#0f172a' }, textColor: '#94a3b8' },
-          grid:            { vertLines: { color: '#1e293b' }, horzLines: { color: '#1e293b' } },
-          crosshair:       { mode: CrosshairMode.Normal },
-          rightPriceScale: { borderColor: '#334155' },
-          timeScale:       { borderColor: '#334155', timeVisible: true, secondsVisible: false },
-        });
-        charts.push(c);
-        return c;
-      };
-
-      const addSeries = (chart: any, SeriesClass: any, opts: any) =>
-        chart.addSeries(SeriesClass, opts);
-
-      // ── 1. MAIN — Candlesticks + EMAs + Bollinger Bands ──────────
-      const main = makeChart(mainRef.current!, 320);
-
-      const candles = addSeries(main, CandlestickSeries, {
+      // Candlesticks
+      const candles = chart.addSeries(CandlestickSeries, {
         upColor: '#22c55e', downColor: '#ef4444',
         borderUpColor: '#22c55e', borderDownColor: '#ef4444',
         wickUpColor: '#22c55e', wickDownColor: '#ef4444',
@@ -89,172 +101,110 @@ export default function TradingChart({ history, levels, symbol }: Props) {
         time: toTs(c.date), open: c.open, high: c.high, low: c.low, close: c.close,
       })));
 
-      // EMA Stack (Indicators 1 & 2)
-      const emaConfigs = [
-        { key: 'ema9',   color: '#f59e0b', title: 'EMA9'   },
-        { key: 'ema21',  color: '#818cf8', title: 'EMA21'  },
-        { key: 'ema50',  color: '#38bdf8', title: 'EMA50'  },
-        { key: 'ema200', color: '#f472b6', title: 'EMA200' },
-      ];
-      emaConfigs.forEach(({ key, color, title }) => {
-        const s = addSeries(main, LineSeries, {
-          color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title,
-        });
-        s.setData(history.map((c: any) => ({ time: toTs(c.date), value: c[key] })));
-      });
+      // EMA21 and EMA50 only — clean, minimal
+      chart.addSeries(LineSeries, { color: '#818cf8', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: 'EMA21' })
+           .setData(history.map(c => ({ time: toTs(c.date), value: c.ema21 })));
+      chart.addSeries(LineSeries, { color: '#38bdf8', lineWidth: 1, priceLineVisible: false, lastValueVisible: false, title: 'EMA50' })
+           .setData(history.map(c => ({ time: toTs(c.date), value: c.ema50 })));
 
-      // Bollinger Bands (Indicator 5)
-      const bbConfigs = [
-        { key: 'bb_upper', title: 'BB Upper', style: LineStyle.Dashed },
-        { key: 'bb_mid',   title: 'BB Mid',   style: LineStyle.Dotted },
-        { key: 'bb_lower', title: 'BB Lower', style: LineStyle.Dashed },
-      ];
-      bbConfigs.forEach(({ key, title, style }) => {
-        const s = addSeries(main, LineSeries, {
-          color: '#475569', lineWidth: 1, lineStyle: style,
-          priceLineVisible: false, lastValueVisible: false, title,
-        });
-        s.setData(history.map((c: any) => ({ time: toTs(c.date), value: c[key] })));
-      });
-
-      // Entry / TP / SL / Trail price lines on candles
+      // Entry / TP / SL / Trail as horizontal lines
       if (levels) {
         const pl = (price: number, color: string, title: string) => ({
-          price, color, lineWidth: 1, lineStyle: LineStyle.Solid, axisLabelVisible: true, title,
+          price, color, lineWidth: 2, lineStyle: LineStyle.Solid, axisLabelVisible: true, title,
         });
-        if (levels.entry)       candles.createPriceLine(pl(levels.entry,       '#facc15', `Entry $${levels.entry}`));
-        if (levels.take_profit) candles.createPriceLine(pl(levels.take_profit, '#22c55e', `TP $${levels.take_profit}`));
-        if (levels.stop_loss)   candles.createPriceLine(pl(levels.stop_loss,   '#ef4444', `SL $${levels.stop_loss}`));
-        if (levels.trail_stop)  candles.createPriceLine(pl(levels.trail_stop,  '#f97316', `Trail $${levels.trail_stop}`));
+        if (levels.entry)       candles.createPriceLine(pl(levels.entry,       '#facc15', `📍 Entry`));
+        if (levels.take_profit) candles.createPriceLine(pl(levels.take_profit, '#22c55e', `🎯 Take Profit`));
+        if (levels.stop_loss)   candles.createPriceLine(pl(levels.stop_loss,   '#ef4444', `🛑 Stop Loss`));
+        if (levels.trail_stop && levels.trail_stop !== levels.stop_loss)
+          candles.createPriceLine(pl(levels.trail_stop, '#f97316', `📈 Trail Stop`));
       }
-      main.timeScale().fitContent();
 
-      // ── 2. RSI (Indicator 4) ──────────────────────────────────────
-      const rsiChart = makeChart(rsiRef.current!, 100);
-      addSeries(rsiChart, LineSeries, { color: '#a78bfa', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'RSI' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.rsi })));
-      addSeries(rsiChart, LineSeries, { color: '#ef444466', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: '70' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: 70 })));
-      addSeries(rsiChart, LineSeries, { color: '#22c55e66', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: '30' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: 30 })));
-      rsiChart.timeScale().fitContent();
+      chart.timeScale().fitContent();
 
-      // ── 3. MACD (Indicator 3) ─────────────────────────────────────
-      const macdChart = makeChart(macdRef.current!, 100);
-      addSeries(macdChart, LineSeries, { color: '#38bdf8', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'MACD' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.macd })));
-      addSeries(macdChart, LineSeries, { color: '#f97316', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'Signal' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.macd_sig })));
-      addSeries(macdChart, HistogramSeries, { priceLineVisible: false, lastValueVisible: false })
-        .setData(history.map(c => ({
-          time: toTs(c.date), value: c.macd_hist,
-          color: c.macd_hist >= 0 ? '#22c55e88' : '#ef444488',
-        })));
-      macdChart.timeScale().fitContent();
-
-      // ── 4. ADX (Indicator 6) ──────────────────────────────────────
-      const adxChart = makeChart(adxRef.current!, 100);
-      addSeries(adxChart, LineSeries, { color: '#facc15', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'ADX' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.adx })));
-      addSeries(adxChart, LineSeries, { color: '#22c55e', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: '+DI' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.plus_di })));
-      addSeries(adxChart, LineSeries, { color: '#ef4444', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: '-DI' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.minus_di })));
-      addSeries(adxChart, LineSeries, { color: '#47556966', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false, title: '20' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: 20 })));
-      adxChart.timeScale().fitContent();
-
-      // ── 5. OBV (Indicator 7) ──────────────────────────────────────
-      const obvChart = makeChart(obvRef.current!, 100);
-      addSeries(obvChart, LineSeries, { color: '#34d399', lineWidth: 1, priceLineVisible: false, lastValueVisible: true, title: 'OBV' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.obv })));
-      addSeries(obvChart, LineSeries, { color: '#f472b6', lineWidth: 1, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: true, title: 'OBV EMA' })
-        .setData(history.map(c => ({ time: toTs(c.date), value: c.obv_ema })));
-      obvChart.timeScale().fitContent();
-
-      // ── Sync time scale across all panels ────────────────────────
-      const allCharts = [main, rsiChart, macdChart, adxChart, obvChart];
-      allCharts.forEach(src => {
-        src.timeScale().subscribeVisibleLogicalRangeChange((range: any) => {
-          allCharts.filter(t => t !== src).forEach(t => {
-            t.timeScale().setVisibleLogicalRange(range);
-          });
-        });
-      });
-
-      // ── Resize observer ───────────────────────────────────────────
-      const refs = [mainRef, rsiRef, macdRef, adxRef, obvRef];
-      const heights = [320, 100, 100, 100, 100];
       const ro = new ResizeObserver(() => {
-        allCharts.forEach((ch, i) => {
-          const el = refs[i].current;
-          if (el) ch.resize(el.clientWidth, heights[i]);
-        });
+        if (ref.current) chart.resize(ref.current.clientWidth, 280);
       });
-      if (mainRef.current) ro.observe(mainRef.current);
-
-      return () => { ro.disconnect(); };
+      if (ref.current) ro.observe(ref.current);
+      return () => ro.disconnect();
     });
 
-    return () => { charts.forEach(c => { try { c.remove(); } catch {} }); };
+    return () => { try { chart?.remove(); } catch {} };
   }, [history, levels]);
 
+  return <div ref={ref} className="w-full" style={{ height: 280 }} />;
+}
+
+// ── Exported Component ────────────────────────────────────────────
+export default function TradingChart({ history, levels, symbol, signals = [], score }: Props) {
+  const bullCount = signals.filter(s => s.bias === 'BULL').length;
+  const bearCount = signals.filter(s => s.bias === 'BEAR').length;
+
   return (
-    <div className="w-full rounded-xl overflow-hidden border border-slate-800 bg-slate-950 mt-3">
+    <div className="w-full space-y-3 mt-3">
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-2 border-b border-slate-800 text-[10px] font-bold">
-        <span className="text-slate-300 font-black uppercase tracking-wider mr-1">{symbol}</span>
-        <span className="flex items-center gap-1 text-amber-400"><span className="w-4 h-0.5 bg-amber-400 inline-block rounded"/> EMA9</span>
-        <span className="flex items-center gap-1 text-indigo-400"><span className="w-4 h-0.5 bg-indigo-400 inline-block rounded"/> EMA21</span>
-        <span className="flex items-center gap-1 text-sky-400"><span className="w-4 h-0.5 bg-sky-400 inline-block rounded"/> EMA50</span>
-        <span className="flex items-center gap-1 text-pink-400"><span className="w-4 h-0.5 bg-pink-400 inline-block rounded"/> EMA200</span>
-        <span className="flex items-center gap-1 text-slate-500"><span className="w-4 h-0.5 bg-slate-500 inline-block rounded border-dashed"/> BB</span>
-        {levels?.entry       && <span className="text-yellow-400">── Entry</span>}
-        {levels?.take_profit && <span className="text-green-400">── TP</span>}
-        {levels?.stop_loss   && <span className="text-red-400">── SL</span>}
-        {levels?.trail_stop  && <span className="text-orange-400">── Trail</span>}
+      {/* ── Price Chart ── */}
+      <div className="rounded-xl overflow-hidden border border-slate-800 bg-slate-950">
+        {/* Chart header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+          <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider">{symbol} — Price Chart</span>
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-indigo-400 inline-block rounded"/> EMA21</span>
+            <span className="flex items-center gap-1"><span className="w-3 h-0.5 bg-sky-400 inline-block rounded"/> EMA50</span>
+            {levels?.entry       && <span className="text-yellow-400 font-bold">── Entry</span>}
+            {levels?.take_profit && <span className="text-green-400 font-bold">── TP</span>}
+            {levels?.stop_loss   && <span className="text-red-400 font-bold">── SL</span>}
+          </div>
+        </div>
+        <PriceChart history={history} levels={levels} />
       </div>
 
-      {/* Candlestick + EMA + BB */}
-      <div ref={mainRef} className="w-full" style={{ height: 320 }} />
+      {/* ── Indicator Scorecard ── */}
+      <div className="rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
+        {/* Scorecard header */}
+        <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+          <span className="text-[11px] font-black text-slate-300 uppercase tracking-wider">Signal Scorecard</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold text-emerald-400">{bullCount} Bullish</span>
+            <span className="text-slate-600">·</span>
+            <span className="text-[10px] font-bold text-red-400">{bearCount} Bearish</span>
+            <span className="text-slate-600">·</span>
+            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+              (score ?? 0) >= 4 ? 'bg-emerald-500/20 text-emerald-300' :
+              (score ?? 0) <= -4 ? 'bg-red-500/20 text-red-300' :
+              'bg-slate-700 text-slate-400'
+            }`}>{score ?? 0}/7</span>
+          </div>
+        </div>
 
-      {/* RSI */}
-      <div className="px-3 py-1 flex items-center gap-2 border-t border-slate-800 bg-slate-900/50">
-        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">RSI</span>
-        <span className="text-[9px] text-violet-400">● Purple line</span>
-        <span className="text-[9px] text-red-400">── 70 Overbought</span>
-        <span className="text-[9px] text-green-400">── 30 Oversold</span>
-      </div>
-      <div ref={rsiRef} className="w-full" style={{ height: 100 }} />
+        {/* Signal grid */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3">
+          {signals.length > 0 ? signals.map(s => (
+            <IndicatorCard key={s.id} id={s.id} bias={s.bias} note={s.note} />
+          )) : (
+            <div className="col-span-2 text-center text-slate-600 text-xs py-4">No signal data yet</div>
+          )}
+        </div>
 
-      {/* MACD */}
-      <div className="px-3 py-1 flex items-center gap-2 border-t border-slate-800 bg-slate-900/50">
-        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">MACD</span>
-        <span className="text-[9px] text-sky-400">── MACD</span>
-        <span className="text-[9px] text-orange-400">── Signal</span>
-        <span className="text-[9px] text-green-400">▌ Green = momentum up</span>
-        <span className="text-[9px] text-red-400">▌ Red = momentum down</span>
+        {/* Score bar */}
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] text-red-400 font-bold">BEAR</span>
+            <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  (score ?? 0) >= 4 ? 'bg-emerald-500' :
+                  (score ?? 0) <= -4 ? 'bg-red-500' : 'bg-amber-500'
+                }`}
+                style={{ width: `${((score ?? 0) + 7) / 14 * 100}%` }}
+              />
+            </div>
+            <span className="text-[9px] text-emerald-400 font-bold">BULL</span>
+          </div>
+          <div className="text-center text-[9px] text-slate-500 mt-1">
+            Score bar: left = bearish · center = neutral · right = bullish
+          </div>
+        </div>
       </div>
-      <div ref={macdRef} className="w-full" style={{ height: 100 }} />
-
-      {/* ADX */}
-      <div className="px-3 py-1 flex items-center gap-2 border-t border-slate-800 bg-slate-900/50">
-        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">ADX</span>
-        <span className="text-[9px] text-yellow-400">── Trend strength</span>
-        <span className="text-[9px] text-green-400">── +DI Bull</span>
-        <span className="text-[9px] text-red-400">── -DI Bear</span>
-        <span className="text-[9px] text-slate-500">── 20 threshold</span>
-      </div>
-      <div ref={adxRef} className="w-full" style={{ height: 100 }} />
-
-      {/* OBV */}
-      <div className="px-3 py-1 flex items-center gap-2 border-t border-slate-800 bg-slate-900/50">
-        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">OBV</span>
-        <span className="text-[9px] text-emerald-400">── OBV above EMA = big players buying</span>
-        <span className="text-[9px] text-pink-400">── OBV EMA</span>
-      </div>
-      <div ref={obvRef} className="w-full" style={{ height: 100 }} />
 
     </div>
   );

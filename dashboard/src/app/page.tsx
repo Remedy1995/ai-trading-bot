@@ -409,6 +409,8 @@ export default function Dashboard() {
                               history={coin.history}
                               levels={chartLevels}
                               symbol={coin.symbol ?? coin.ticker}
+                              signals={coin.confluence?.signals ?? []}
+                              score={coin.confluence?.score ?? 0}
                             />
                           );
                         })()}
