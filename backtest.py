@@ -12,7 +12,11 @@ import pandas as pd
 import numpy as np
 import json
 import time
+import os
 from datetime import datetime, timedelta
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(BASE_DIR, "backtest_results.json")
 
 
 # ─────────────────────────────────────────────
@@ -390,10 +394,9 @@ def main():
     print_overall_verdict(all_metrics)
 
     # Save full results
-    output_path = '/Users/asoribabackend/.gemini/antigravity/scratch/ai-trading-bot/backtest_results.json'
-    with open(output_path, 'w') as f:
+    with open(OUTPUT_FILE, 'w') as f:
         json.dump(all_results, f, indent=2, default=str)
-    print(f"  📁 Full results saved to backtest_results.json\n")
+    print(f"  📁 Full results saved to {OUTPUT_FILE}\n")
 
 
 if __name__ == "__main__":

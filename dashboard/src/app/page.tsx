@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from 'react';
+import dynamic from 'next/dynamic';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine, BarChart, Bar, Cell,
 } from 'recharts';
+
+const TradingChart = dynamic(() => import('./components/TradingChart'), { ssr: false });
 import {
   TrendingUp, TrendingDown, Activity, DollarSign, Brain,
   BarChart3, AlertCircle, Shield, Zap, Target,
@@ -83,8 +86,9 @@ export default function Dashboard() {
     enhancedResults   = {},
     enhancedBacktest  = [],
     tradeHistory      = [],
-    settings          = { timeframe: '5m' },
+    settings          = { timeframe: '1h' },
     tradeState        = {},
+    balance           = { usdt_free: null, usdt_total: null },
     lastUpdated,
   } = data || {};
 
@@ -145,6 +149,26 @@ export default function Dashboard() {
             })()}
             <div className="text-[10px] text-slate-500 tracking-wider">
               {lastUpdated ? `LAST SCAN: ${new Date(lastUpdated).toLocaleTimeString()}` : ''}
+            </div>
+
+            {/* Binance Balance */}
+            <div className="flex items-center gap-3 mt-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2">
+              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Binance Balance</div>
+              <div className="ml-auto flex items-center gap-3">
+                <div className="text-center">
+                  <div className="text-[9px] text-slate-500 uppercase">Available</div>
+                  <div className="text-sm font-black text-emerald-400">
+                    {(balance as any)?.usdt_free != null ? `$${Number((balance as any).usdt_free).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                  </div>
+                </div>
+                <div className="text-center">
+                  <div className="text-[9px] text-slate-500 uppercase">Total</div>
+                  <div className="text-sm font-black text-slate-200">
+                    {(balance as any)?.usdt_total != null ? `$${Number((balance as any).usdt_total).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Timeframe Selector */}
@@ -365,24 +389,29 @@ export default function Dashboard() {
                           ))}
                         </div>
 
-                        {/* Mini price chart */}
-                        {coin.history?.length > 0 && (
-                          <div className="h-28 w-full">
-                            <ResponsiveContainer width="100%" height="100%">
-                              <LineChart data={coin.history}>
-                                <Line type="monotone" dataKey="price" stroke="#818cf8" strokeWidth={1.5} dot={false} />
-                                <Line type="monotone" dataKey="ema21" stroke="#34d399" strokeWidth={1} dot={false} strokeDasharray="3 3" />
-                                <Line type="monotone" dataKey="ema50" stroke="#f59e0b" strokeWidth={1} dot={false} strokeDasharray="3 3" />
-                                <Tooltip
-                                  contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }}
-                                  itemStyle={{ color: '#94a3b8' }}
-                                  formatter={(v: any) => [`$${Number(v).toLocaleString()}`, '']}
-                                  labelFormatter={(l: any) => l}
-                                />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        )}
+                        {/* Full Trading Chart */}
+                        {coin.history?.length > 0 && (() => {
+                          const trade = tradeState?.[coin.symbol];
+                          const chartLevels = trade ? {
+                            entry:       trade.buy_price,
+                            take_profit: trade.take_profit,
+                            stop_loss:   trade.stop_loss,
+                            trail_stop:  trade.highest_price && trade.trail_atr
+                                           ? Math.max(trade.stop_loss, trade.highest_price - 2 * trade.trail_atr)
+                                           : trade.stop_loss,
+                          } : coin.levels ? {
+                            entry:       coin.levels.entry,
+                            take_profit: coin.levels.take_profit,
+                            stop_loss:   coin.levels.stop_loss,
+                          } : null;
+                          return (
+                            <TradingChart
+                              history={coin.history}
+                              levels={chartLevels}
+                              symbol={coin.symbol ?? coin.ticker}
+                            />
+                          );
+                        })()}
                       </div>
                     );
                   })}

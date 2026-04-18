@@ -41,6 +41,7 @@ export async function GET() {
     // Extract from single source of truth
     const enhancedResults     = { results: botState.signals ?? [], generated: botState.generated };
     const tradeState          = botState.open_trades ?? {};
+    const balance             = botState.balance ?? { usdt_free: null, usdt_total: null };
 
     return NextResponse.json({
       botResults,
@@ -51,6 +52,7 @@ export async function GET() {
       tradeHistory,
       settings,
       tradeState,
+      balance,
       lastUpdated: new Date().toISOString(),
     });
   } catch (error) {

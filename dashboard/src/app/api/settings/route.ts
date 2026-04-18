@@ -8,7 +8,7 @@ export async function POST(request: Request) {
     const parentDir = process.env.DATA_DIR || path.resolve(process.cwd(), '..');
     const settingsPath = path.join(parentDir, 'settings.json');
 
-    let settings = { timeframe: '5m' };
+    let settings = { timeframe: '1h' };
     if (fs.existsSync(settingsPath)) {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }

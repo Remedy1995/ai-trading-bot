@@ -53,7 +53,8 @@ ATR_TRAIL_MULT   = 2.0     # Trailing stop = 2×ATR below highest close
 MIN_SIGNALS      = 4
 ADX_MIN          = 20
 
-OUTPUT_FILE = "enhanced_backtest_results.json"
+BASE_DIR         = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE      = os.path.join(BASE_DIR, "enhanced_backtest_results.json")
 RATE_LIMIT_SLEEP = 15
 
 # ─── Data & Indicators ───────────────────────────────────────────

@@ -9,7 +9,11 @@ import requests
 import pandas as pd
 import json
 import time
+import os
 from datetime import datetime
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_FILE = os.path.join(BASE_DIR, "bot_results.json")
 
 
 def get_crypto_data(crypto_id='bitcoin', days=250):
@@ -249,10 +253,10 @@ def run_bot(crypto_ids=None, short_window=50, long_window=200):
     print(f"{'='*60}\n")
 
     # Save results to JSON for the dashboard
-    with open('/Users/asoribabackend/.gemini/antigravity/scratch/ai-trading-bot/bot_results.json', 'w') as f:
+    with open(OUTPUT_FILE, 'w') as f:
         # Remove chart_data from terminal output but keep in file
         json.dump(results, f, indent=2, default=str)
-    print("  📁 Results saved to bot_results.json")
+    print(f"  📁 Results saved to {OUTPUT_FILE}")
 
     return results
 

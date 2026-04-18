@@ -20,7 +20,7 @@ import numpy as np
 
 # Reuse the powerful mathematics already built in your enhanced_bot
 from enhanced_bot import build_all_indicators, score_confluence, trade_levels, ATR_TRAIL_MULT
-from notifier import send_discord_alert
+from notifier import send_discord_alert, send_open_trades_summary
 
 # ─────────────────────────────────────────────────────────────────
 #  1. BOT CONFIGURATION (24/7 DAEMON MODE)
@@ -37,7 +37,7 @@ BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of t
 
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
 TRADE_AMOUNT_USD = 8.0                  # $8 per trade — safe for $40 starting balance
-TIMEFRAME = '5m'
+TIMEFRAME = '1h'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this (25% of $40 balance)
 MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades ($8×3=$24 of $28 balance)
 
@@ -230,29 +230,43 @@ def get_current_price(exchange, symbol):
 
 def check_higher_timeframe(exchange, symbol: str) -> dict:
     """
-    Fetches the 1h chart and scores confluence on it.
-    Returns a dict with 'score', 'verdict', and 'allowed' (bool).
-    A 5m STRONG_BUY is only valid if the 1h is not actively bearish (score >= -1).
-    This prevents entering a 5m signal that fights the broader trend.
+    Dynamic Higher Timeframe (HTF) filter — scales with the active TIMEFRAME.
+
+    5m  trading → checks 1h  (makes sure bigger trend isn't bearish)
+    15m trading → checks 1h
+    1h  trading → checks 4h  (makes sure 4h trend isn't bearish)
+    4h  trading → skips check (4h is already the big picture)
+    1d  trading → skips check (daily is already the big picture)
+
+    This prevents entering a signal that fights the broader trend.
     """
+    # Map each trading timeframe to its higher timeframe
+    htf_map = { '5m': '1h', '15m': '1h', '1h': '4h' }
+    htf = htf_map.get(TIMEFRAME)
+
+    # On 4h or 1d, no higher timeframe check needed — already the big picture
+    if not htf:
+        print(f"  📈 [MTF] {TIMEFRAME} is a high timeframe — no HTF check needed. Proceeding.")
+        return {"score": 0, "verdict": "SKIPPED", "allowed": True}
+
     try:
-        df_1h = fetch_ohlcv(exchange, symbol, timeframe='1h', limit=250)
-        if df_1h.empty or len(df_1h) < 200:
-            print(f"  ⚠️  [MTF] Not enough 1h data for {symbol} — skipping HTF check, proceeding.")
+        df_htf = fetch_ohlcv(exchange, symbol, timeframe=htf, limit=250)
+        if df_htf.empty or len(df_htf) < 200:
+            print(f"  ⚠️  [MTF] Not enough {htf} data for {symbol} — skipping HTF check, proceeding.")
             return {"score": 0, "verdict": "UNKNOWN", "allowed": True}
 
-        df_1h = build_all_indicators(df_1h)
-        conf_1h = score_confluence(df_1h)
-        score_1h = conf_1h["score"]
-        verdict_1h = conf_1h["verdict"]
+        df_htf   = build_all_indicators(df_htf)
+        conf_htf = score_confluence(df_htf)
+        score_htf   = conf_htf["score"]
+        verdict_htf = conf_htf["verdict"]
 
-        # Block entry only if the 1h is clearly bearish (score <= -2)
-        allowed = score_1h >= -1
-        status = "✅ ALIGNED" if allowed else "❌ CONFLICTING"
-        print(f"  📈 [MTF 1h] Score: {score_1h}/7 ({verdict_1h}) — {status}")
-        return {"score": score_1h, "verdict": verdict_1h, "allowed": allowed}
+        # Block entry only if the HTF is clearly bearish (score <= -2)
+        allowed = score_htf >= -1
+        status  = "✅ ALIGNED" if allowed else "❌ CONFLICTING"
+        print(f"  📈 [MTF {htf}] Score: {score_htf}/7 ({verdict_htf}) — {status}")
+        return {"score": score_htf, "verdict": verdict_htf, "allowed": allowed}
     except Exception as e:
-        print(f"  ⚠️  [MTF] 1h check failed ({e}) — proceeding without HTF filter.")
+        print(f"  ⚠️  [MTF] {htf} check failed ({e}) — proceeding without HTF filter.")
         return {"score": 0, "verdict": "UNKNOWN", "allowed": True}
 
 
@@ -489,18 +503,61 @@ def place_exchange_stop(exchange, symbol, amount, sl_price):
         log_trade_history(f"WARNING: Failed to place exchange stop for {symbol} at ${sl_price:.4f}. Manual monitoring required. Error: {e}")
 
 
+def ensure_spot_balance(exchange, amount_usd: float) -> bool:
+    """
+    Checks if Spot wallet has enough USDT to trade.
+    If not, redeems exactly what is needed from Binance Flexible Earn.
+    Returns True if balance is ready, False if redemption failed.
+    """
+    try:
+        balance = exchange.fetch_balance()
+        spot_free = float(balance['USDT']['free'])
+
+        if spot_free >= amount_usd:
+            print(f"  💰 [BALANCE] Spot USDT: ${spot_free:.2f} — sufficient. No redemption needed.")
+            return True
+
+        # Not enough in Spot — try to redeem from Flexible Earn
+        shortfall = round(amount_usd - spot_free + 0.5, 2)  # small buffer
+        print(f"  💰 [BALANCE] Spot USDT: ${spot_free:.2f} — need ${amount_usd:.2f}. Redeeming ${shortfall:.2f} from Earn...")
+
+        try:
+            # Binance Simple Earn Flexible redemption
+            exchange.sapi_post_simple_earn_flexible_redeem({
+                'productId': 'USDT001',   # Binance Flexible USDT product ID
+                'amount':    str(shortfall),
+                'type':      'FAST',      # FAST = instant redemption
+            })
+            print(f"  ✅ [BALANCE] Redeemed ${shortfall:.2f} from Earn. Waiting for Spot balance to update...")
+            import time as _time
+            _time.sleep(3)  # brief wait for Binance to settle the redemption
+            return True
+        except Exception as earn_err:
+            print(f"  ⚠️  [BALANCE] Earn redemption failed: {earn_err}. Checking if Spot balance is still usable...")
+            # Even if redemption fails, try the trade anyway — maybe balance updated
+            return spot_free >= (amount_usd * 0.5)  # allow if at least half available
+
+    except Exception as e:
+        print(f"  ⚠️  [BALANCE] Balance check failed: {e}. Proceeding with trade attempt.")
+        return True  # don't block trade on balance check failure
+
+
 def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_price):
     """Enters the market when all conditions are met."""
     amount = TRADE_AMOUNT_USD / current_price
-    
+
     if SIMULATION_MODE:
         print(f"  [SIMULATION] ✅ BOUGHT {amount:.4f} {symbol} @ ${current_price:.2f}")
         return amount
 
+    # Ensure Spot wallet has enough USDT — redeem from Earn if needed
+    if not ensure_spot_balance(exchange, TRADE_AMOUNT_USD):
+        print(f"  ❌ [BALANCE] Could not secure ${TRADE_AMOUNT_USD} in Spot. Skipping trade.")
+        return None
+
     try:
         print(f"  ⚡ Executing LIVE Market BUY for {symbol}...")
         order = exchange.create_market_order(symbol, 'buy', amount)
-        # Use exact filled amount if available
         actual_amount = order.get('filled', amount)
         print(f"  ✅ SUCCESS! Buy order complete.")
         return actual_amount
@@ -523,6 +580,26 @@ def run_continuous_daemon():
     # Prevents spamming the same alert every 5 minutes.
     # A coin is removed when it drops below 3/7 so it can re-alert if it recovers.
     buy_watch_active = set()
+    last_open_trades_alert = 0  # tracks when we last sent the hourly open trades summary
+
+    # Initialise settings.json with 1h default on first run or if missing
+    # User can still override anytime via the dashboard UI
+    if not os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, 'w') as f:
+            json.dump({"timeframe": "1h"}, f, indent=2)
+        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h")
+    else:
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                _s = json.load(f)
+            # If still on old 5m default, upgrade to 1h automatically
+            if _s.get("timeframe") == "5m":
+                _s["timeframe"] = "1h"
+                with open(SETTINGS_FILE, 'w') as f:
+                    json.dump(_s, f, indent=2)
+                print("  ⚙️  [INIT] Upgraded default timeframe from 5m → 1h")
+        except Exception:
+            pass
 
     exchange = get_exchange()
     if not exchange and not SIMULATION_MODE:
@@ -539,13 +616,8 @@ def run_continuous_daemon():
                     if current_tf != TIMEFRAME:
                         print(f"  ⚙️ [SETTING CHANGE] Switching timeframe to {current_tf}")
                         TIMEFRAME = current_tf
-                        # Update interval based on timeframe (approximate for scanning)
-                        if 'm' in current_tf: 
-                            POLL_INTERVAL_SEC = int(current_tf.replace('m','')) * 60
-                        elif 'h' in current_tf:
-                            POLL_INTERVAL_SEC = int(current_tf.replace('h','')) * 3600
-                        elif 'd' in current_tf:
-                            POLL_INTERVAL_SEC = 86400
+                        # Poll interval always stays at 5 minutes regardless of timeframe
+                        # so open trades are monitored frequently and stops are never missed
 
             except Exception as e:
                 print(f"  [Warn] Failed to load {SETTINGS_FILE}: {e}")
@@ -653,14 +725,29 @@ def run_continuous_daemon():
             history = [
                 {
                     "date":      r["date"].strftime("%Y-%m-%d %H:%M"),
-                    "price":     round(float(r["close"]),  4),
-                    "ema21":     round(float(r["ema21"]),  4),
-                    "ema50":     round(float(r["ema50"]),  4),
-                    "ema200":    round(float(r["ema200"]), 4),
-                    "rsi":       round(float(r["rsi"]),    2),
+                    "open":      round(float(r["open"]),      4),
+                    "high":      round(float(r["high"]),      4),
+                    "low":       round(float(r["low"]),       4),
+                    "close":     round(float(r["close"]),     4),
+                    "volume":    round(float(r["vol_proxy"]), 2),
+                    "ema9":      round(float(r["ema9"]),      4),
+                    "ema21":     round(float(r["ema21"]),     4),
+                    "ema50":     round(float(r["ema50"]),     4),
+                    "ema200":    round(float(r["ema200"]),    4),
+                    "bb_upper":  round(float(r["bb_upper"]),  4),
+                    "bb_mid":    round(float(r["bb_mid"]),    4),
+                    "bb_lower":  round(float(r["bb_lower"]),  4),
+                    "rsi":       round(float(r["rsi"]),       2),
+                    "macd":      round(float(r["macd"]),      6),
+                    "macd_sig":  round(float(r["macd_sig"]),  6),
                     "macd_hist": round(float(r["macd_hist"]), 6),
+                    "adx":       round(float(r["adx"]),       2),
+                    "plus_di":   round(float(r["plus_di"]),   2),
+                    "minus_di":  round(float(r["minus_di"]),  2),
+                    "obv":       round(float(r["obv"]),       2),
+                    "obv_ema":   round(float(r["obv_ema"]),   2),
                 }
-                for _, r in df.tail(90).iterrows()
+                for _, r in df.tail(100).iterrows()
             ]
 
             cycle_results.append({
@@ -800,15 +887,42 @@ def run_continuous_daemon():
         with open(RESULTS_FILE, "w") as f:
             json.dump(output, f, indent=2, default=str)
 
+        # Fetch live USDT balance from Binance
+        try:
+            balance_data = exchange.fetch_balance()
+            usdt_free  = round(balance_data['USDT']['free'],  2)
+            usdt_total = round(balance_data['USDT']['total'], 2)
+        except Exception:
+            usdt_free  = None
+            usdt_total = None
+
         # Single source of truth — combines everything the dashboard needs into one file
         bot_state = {
             "generated":   now_str,
             "signals":     cycle_results,
             "open_trades": state,
             "stats":       stats,
+            "balance": {
+                "usdt_free":  usdt_free,
+                "usdt_total": usdt_total,
+            },
         }
         with open(BOT_STATE_FILE, "w") as f:
             json.dump(bot_state, f, indent=2, default=str)
+
+        # Send hourly open trades summary to Discord
+        import time as _time
+        open_trades_only = {k: v for k, v in state.items() if v.get("status") == "OPEN"}
+        if open_trades_only:
+            now_ts = _time.time()
+            if now_ts - last_open_trades_alert >= 3600:  # once per hour
+                # Attach latest price to each trade for P&L display
+                for sym, trade in open_trades_only.items():
+                    for r in cycle_results:
+                        if r.get("symbol") == sym:
+                            trade["current_price"] = r.get("current_price", trade.get("buy_price", 0))
+                send_open_trades_summary(open_trades_only)
+                last_open_trades_alert = now_ts
 
         print(f"\n[DASHBOARD UI UPDATED] The NextJS web interface charts have been seeded!")
         print(f"💤 Cycle complete. Sleeping for {int(POLL_INTERVAL_SEC/60)} minutes...")
