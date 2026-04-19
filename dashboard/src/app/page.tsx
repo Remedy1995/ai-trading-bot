@@ -45,12 +45,17 @@ export default function Dashboard() {
   const [data, setData]       = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab]         = useState<'enhanced' | 'history' | 'legacy' | 'backtest'>('enhanced');
+  const [tradeAmountInput, setTradeAmountInput] = useState<number>(15);
 
 
   useEffect(() => {
     fetch('/api/data')
       .then(r => r.json())
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => {
+        setData(d);
+        setLoading(false);
+        if (d?.settings?.trade_amount) setTradeAmountInput(Number(d.settings.trade_amount));
+      })
       .catch(() => setLoading(false));
   }, []);
 
@@ -215,9 +220,10 @@ export default function Dashboard() {
                   type="number"
                   min={1}
                   step={1}
-                  defaultValue={(settings as any).trade_amount ?? 15}
-                  onBlur={(e) => updateTradeAmount(Number(e.target.value))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') updateTradeAmount(Number((e.target as HTMLInputElement).value)); }}
+                  value={tradeAmountInput}
+                  onChange={(e) => setTradeAmountInput(Number(e.target.value))}
+                  onBlur={() => updateTradeAmount(tradeAmountInput)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') updateTradeAmount(tradeAmountInput); }}
                   className="w-14 bg-slate-800 text-emerald-300 font-black text-[11px] text-center rounded px-1 py-0.5 border border-slate-700 focus:outline-none focus:border-indigo-500"
                 />
               </div>

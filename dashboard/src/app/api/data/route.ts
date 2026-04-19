@@ -36,7 +36,7 @@ export async function GET() {
     const sentimentResults    = readJson(path.join(parentDir, 'sentiment_results.json'));
     const enhancedBacktest    = readJson(path.join(parentDir, 'enhanced_backtest_results.json'));
     const tradeHistory        = readTextLines(path.join(parentDir, 'trade_history.txt'));
-    const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '5m' });
+    const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '1h', trade_amount: 15 });
 
     // Extract from single source of truth
     const enhancedResults     = { results: botState.signals ?? [], generated: botState.generated };

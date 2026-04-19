@@ -446,12 +446,14 @@ def execute_sell(exchange, symbol, amount, reason):
             print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
             return True
         except Exception as sell_err:
-            # Any sell failure on a small position = treat as dust, don't retry
-            if order_value < 10.0:
+            # If the position is worth less than half the trade amount it's likely dust
+            # Use TRADE_AMOUNT_USD so the threshold scales with user's configured size
+            dust_threshold = TRADE_AMOUNT_USD * 0.5
+            if order_value < dust_threshold:
                 print(f"  ⚠️  [{reason}] {symbol} sell error on small position (${order_value:.2f}): {sell_err}. Marking closed.")
                 log_trade_history(f"DUST CLOSE ({reason}): {symbol} — sell error on ${order_value:.2f} position: {sell_err}")
                 return True
-            raise  # large position — propagate so outer except logs and retries
+            raise  # full-size position — propagate so outer except logs and retries
 
     except Exception as e:
         print(f"  ❌ [{reason}] Sell failed for {symbol}: {e}. Will retry next cycle.")
