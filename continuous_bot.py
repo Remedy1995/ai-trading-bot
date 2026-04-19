@@ -38,8 +38,9 @@ BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of t
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
 TRADE_AMOUNT_USD = 15.0                 # $15 per trade — safe for $50 balance (3 trades max = $45)
 TIMEFRAME = '1h'
-MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this (25% of $40 balance)
-MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades ($8×3=$24 of $28 balance)
+MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this
+MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades
+TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
 
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
@@ -643,7 +644,6 @@ def run_continuous_daemon():
     # Maps symbol → unix timestamp of the stop-out. Bot won't re-enter until
     # the cooldown expires (3 candle-lengths), preventing revenge trading.
     stop_loss_cooldown: dict = {}
-    TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
     COOLDOWN_CANDLES = 3  # wait 3 candles before re-entering a stopped-out coin
 
     # Initialise settings.json with 1h default on first run or if missing

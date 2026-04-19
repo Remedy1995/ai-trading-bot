@@ -195,7 +195,7 @@ def calc_bollinger(close: pd.Series):
     lower = mid - BB_STD * std
     bandwidth = (upper - lower).replace(0, float('nan'))  # avoid division by zero in flat markets
     pct_b = (close - lower) / bandwidth
-    bw    = (upper - lower) / mid
+    bw    = bandwidth / mid
     return upper, mid, lower, pct_b, bw
 
 
