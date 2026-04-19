@@ -92,7 +92,7 @@ BB_BULL_HIGH    = 0.95     # %B above this → overbought, no bull vote
 # ATR-based stops
 ATR_PERIOD      = 14
 ATR_STOP_MULT   = 1.5      # Stop  = Entry ± 1.5 × ATR
-ATR_TARGET_MULT = 2.0      # Target = Entry ± 2.0 × ATR  → hits faster, still 1.3:1 R:R
+ATR_TARGET_MULT = 3.0      # Target = Entry ± 3.0 × ATR  → true 2:1 R:R (3.0/1.5)
 ATR_TRAIL_MULT  = 2.0      # Trailing stop = 2.0 × ATR below highest price reached
 
 # ADX trend-strength filter
@@ -370,17 +370,19 @@ def score_confluence(df: pd.DataFrame) -> dict:
     # ── 5. BOLLINGER BANDS (%B) ───────────────────────────────────
     # %B = (Price - Lower) / (Upper - Lower)
     # %B > 0.5 = above midline (bullish context)
-    # %B 0.45-0.90 = ideal bull zone (above mid, not touching upper)
-    # %B > 0.95 = touching upper band → overbought, risk of mean reversion
+    # %B 0.45-0.95 = ideal bull zone (above mid, up to upper band)
+    # %B > 0.95 = riding upper band → strong breakout momentum, NEUTRAL not BEAR
+    #   (in a genuine breakout price rides the upper band — penalising this as BEAR
+    #    blocked valid entries and caused losses; reversion risk is handled by RSI >75)
     pct_b = row.bb_pct_b
     if BB_BULL_LOW <= pct_b <= BB_BULL_HIGH:
         score += 1
         signals.append({"id": "BB", "bias": "BULL",
                          "note": f"Price in upper BB zone (%B={pct_b:.2f}) – bullish context"})
     elif pct_b > BB_BULL_HIGH:
-        score -= 1
-        signals.append({"id": "BB", "bias": "BEAR",
-                         "note": f"%B={pct_b:.2f} – touching upper band, reversal risk"})
+        # Upper-band touch in isolation = neutral. RSI handles overbought.
+        signals.append({"id": "BB", "bias": "NEUTRAL",
+                         "note": f"%B={pct_b:.2f} – riding upper band (breakout momentum, watch RSI)"})
     elif pct_b < 0.10:
         signals.append({"id": "BB", "bias": "NEUTRAL",
                          "note": f"%B={pct_b:.2f} – near lower band (wait for bounce confirmation)"})

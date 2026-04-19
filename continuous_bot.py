@@ -260,8 +260,9 @@ def check_higher_timeframe(exchange, symbol: str) -> dict:
         score_htf   = conf_htf["score"]
         verdict_htf = conf_htf["verdict"]
 
-        # Block entry only if the HTF is clearly bearish (score <= -2)
-        allowed = score_htf >= -1
+        # Block entry if the HTF is net bearish or neutral-bearish (score < 0)
+        # Must be neutral (0) or better — don't fight the bigger trend
+        allowed = score_htf >= 0
         status  = "✅ ALIGNED" if allowed else "❌ CONFLICTING"
         print(f"  📈 [MTF {htf}] Score: {score_htf}/7 ({verdict_htf}) — {status}")
         return {"score": score_htf, "verdict": verdict_htf, "allowed": allowed}
@@ -505,14 +506,22 @@ def place_exchange_stop(exchange, symbol, amount, sl_price):
         return
 
     try:
-        # 'stop_market' is supported on Binance Futures; for spot use 'stop_loss_limit'
-        # We try stop_market first, then fall back to stop_loss_limit
+        # Round amount to exchange step-size precision before placing the stop order
+        # Without this, Binance rejects the order silently, leaving the position unprotected
+        stop_amount = float(exchange.amount_to_precision(symbol, amount))
+        market = exchange.market(symbol)
+        min_amount = float((market.get('limits') or {}).get('amount', {}).get('min') or 0)
+        if stop_amount < min_amount:
+            print(f"  ⚠️  [EXCHANGE STOP] Amount {stop_amount} below exchange min {min_amount} — skipping exchange stop (bot will manage in-loop).")
+            return
+
+        # Try stop_market first (Futures), fall back to stop_loss_limit (Spot)
         try:
-            exchange.create_order(symbol, 'stop_market', 'sell', amount, None, {'stopPrice': sl_price})
+            exchange.create_order(symbol, 'stop_market', 'sell', stop_amount, None, {'stopPrice': sl_price})
             print(f"  🛡️  [EXCHANGE STOP] Hard stop-market placed at ${sl_price:.4f}")
         except Exception:
             limit_price = round(sl_price * 0.995, 8)  # Slightly below stop to ensure fill
-            exchange.create_order(symbol, 'stop_loss_limit', 'sell', amount, limit_price, {'stopPrice': sl_price})
+            exchange.create_order(symbol, 'stop_loss_limit', 'sell', stop_amount, limit_price, {'stopPrice': sl_price})
             print(f"  🛡️  [EXCHANGE STOP] Hard stop-limit placed at ${sl_price:.4f} (limit: ${limit_price:.4f})")
     except Exception as e:
         print(f"  ⚠️  [EXCHANGE STOP] Could not place stop order — monitor manually! Error: {e}")
@@ -614,6 +623,13 @@ def run_continuous_daemon():
     buy_watch_active = set()
     last_open_trades_alert = 0  # tracks when we last sent the hourly open trades summary
 
+    # Per-coin re-entry cooldown after a stop loss.
+    # Maps symbol → unix timestamp of the stop-out. Bot won't re-enter until
+    # the cooldown expires (3 candle-lengths), preventing revenge trading.
+    stop_loss_cooldown: dict = {}
+    TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
+    COOLDOWN_CANDLES = 3  # wait 3 candles before re-entering a stopped-out coin
+
     # Initialise settings.json with 1h default on first run or if missing
     # User can still override anytime via the dashboard UI
     if not os.path.exists(SETTINGS_FILE):
@@ -693,17 +709,20 @@ def run_continuous_daemon():
                 save_state(state)
 
                 if new_status != "OPEN":
-                    # Trade closed. Calculate PNL and Win/Loss
-                    buy_price = state[symbol]['buy_price']
-                    amount = state[symbol].get('amount', TRADE_AMOUNT_USD / buy_price)
-                    
-                    trade_pnl_usd = (current_price - buy_price) * amount
+                    # Trade closed. Calculate PNL using the actual exit price.
+                    # Use current_price as best available proxy (manage_open_trade
+                    # only fires the sell when price crosses the level, so slippage is minimal).
+                    buy_price  = state[symbol]['buy_price']
+                    amount     = state[symbol].get('amount', TRADE_AMOUNT_USD / buy_price)
+                    exit_price = current_price   # actual market price that triggered the close
+
+                    trade_pnl_usd = (exit_price - buy_price) * amount
                     is_win = trade_pnl_usd > 0
                     result_str = "🟢 WON" if is_win else "🔴 LOST"
-                    
+
                     stats = load_stats()
                     stats["total_trades"] += 1
-                    
+
                     if is_win:
                         stats["wins"] += 1
                         stats["cumulative_gains_usd"] += trade_pnl_usd
@@ -711,16 +730,22 @@ def run_continuous_daemon():
                         stats["losses"] += 1
                         stats["cumulative_losses_usd"] += abs(trade_pnl_usd)
                         stats["today_loss_usd"] = stats.get("today_loss_usd", 0.0) + abs(trade_pnl_usd)
-                        
+
+                        # Record stop-loss cooldown — block re-entry for 3 candles
+                        if "STOP_LOSS" in new_status:
+                            stop_loss_cooldown[symbol] = time.time()
+                            candle_secs = TIMEFRAME_TO_SECONDS.get(TIMEFRAME, 3600)
+                            cooldown_mins = (COOLDOWN_CANDLES * candle_secs) // 60
+                            print(f"  🕐 [COOLDOWN] {symbol} stopped out — blocked from re-entry for {cooldown_mins} min.")
+
                     stats["total_pnl_usd"] += trade_pnl_usd
                     save_stats(stats)
-                    
-                    # Update memory and alert.
+
                     if symbol in state:
                         del state[symbol]
                     save_state(state)
-                    send_discord_alert(symbol, coin_name, f"EXIT: {new_status} | {result_str} | PNL: ${trade_pnl_usd:.2f}", current_price)
-                    log_trade_history(f"{result_str} ({new_status}): {symbol} @ ${current_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
+                    send_discord_alert(symbol, coin_name, f"EXIT: {new_status} | {result_str} | PNL: ${trade_pnl_usd:.2f}", exit_price)
+                    log_trade_history(f"{result_str} ({new_status}): {symbol} @ ${exit_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
 
             # --- B. Fetch Chart Data & Analyze ---
             df = fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250)
@@ -811,10 +836,22 @@ def run_continuous_daemon():
                 continue
 
             if verdict == "STRONG_BUY":
+                # Re-entry cooldown check — skip if this coin stopped out recently
+                if symbol in stop_loss_cooldown:
+                    candle_secs    = TIMEFRAME_TO_SECONDS.get(TIMEFRAME, 3600)
+                    cooldown_secs  = COOLDOWN_CANDLES * candle_secs
+                    elapsed        = time.time() - stop_loss_cooldown[symbol]
+                    if elapsed < cooldown_secs:
+                        remaining_min = int((cooldown_secs - elapsed) / 60)
+                        print(f"  🕐 [COOLDOWN] {symbol} skipped — {remaining_min} min cooldown remaining after stop loss.")
+                        continue
+                    else:
+                        del stop_loss_cooldown[symbol]  # Cooldown expired, allow entry
+
                 print(f"\n  🎯 [SIGNAL TRIGGERED] {symbol} hit STRONG BUY requirements!")
                 buy_watch_active.discard(symbol)  # Graduated from watch to trade
 
-                # --- MULTI-TIMEFRAME CONFIRMATION (1h must not be bearish) ---
+                # --- MULTI-TIMEFRAME CONFIRMATION (4h must not be bearish) ---
                 htf = check_higher_timeframe(exchange, symbol)
                 if not htf["allowed"]:
                     print(f"  🚫 [MTF BLOCK] 1h trend is bearish (score {htf['score']}/7). Skipping 5m signal.")
