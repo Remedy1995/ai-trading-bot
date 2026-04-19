@@ -477,7 +477,7 @@ def trade_levels(df: pd.DataFrame, direction: str) -> dict:
     • High volatility (ATR large) → wider stops
     This prevents premature stop-outs while still protecting capital.
 
-    Risk:Reward = 3.0/1.5 = 2.0 minimum (we always make 2× what we risk)
+    Risk:Reward = 3.0/1.0 = 3.0 minimum (we always make 3× what we risk)
     """
     row    = df.iloc[-1]
     entry  = float(row.close)

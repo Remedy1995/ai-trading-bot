@@ -829,7 +829,7 @@ def run_continuous_daemon():
 
             cycle_results.append({
                 "coin":          coin_name.lower(),
-                "ticker":        coin_name.upper(),
+                "ticker":        symbol.split('/')[0],  # e.g. "BTC" not "BITCOIN"
                 "symbol":        symbol,   # e.g. ETH/USDT — used by dashboard to match state.json
                 "current_price": current_price,
                 "change_24h":    0, # Simplified for continuous
@@ -874,7 +874,7 @@ def run_continuous_daemon():
                 # --- MULTI-TIMEFRAME CONFIRMATION (4h must not be bearish) ---
                 htf = check_higher_timeframe(exchange, symbol)
                 if not htf["allowed"]:
-                    print(f"  🚫 [MTF BLOCK] 1h trend is bearish (score {htf['score']}/7). Skipping 5m signal.")
+                    print(f"  🚫 [MTF BLOCK] HTF trend is bearish (score {htf['score']}/7). Skipping {TIMEFRAME} signal.")
                     continue
 
                 # --- AI ADVISORY (raises bar in bearish macro, never blocks outright) ---

@@ -278,7 +278,7 @@ export default function Dashboard() {
                   <p>
                     Signals trade only when <span className="text-indigo-300 font-bold">4+ of 7 independent indicators agree</span>.
                     Stop-loss and take-profit are <span className="text-amber-400">ATR-based</span> (adapts to current volatility).
-                    Minimum <span className="text-emerald-400">2:1 risk-reward</span> on every trade.
+                    Minimum <span className="text-emerald-400">3:1 risk-reward</span> on every trade.
                   </p>
                   <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     {['EMA Stack', 'EMA Momentum', 'MACD', 'RSI(14)', 'Bollinger %B', 'ADX + DI', 'OBV'].map(ind => (
