@@ -425,20 +425,29 @@ def execute_sell(exchange, symbol, amount, reason):
         market = exchange.market(symbol)
         sell_amount = float(exchange.amount_to_precision(symbol, actual_amount))
 
-        # Check against exchange minimum order size
-        min_amount = float((market.get('limits') or {}).get('amount', {}).get('min') or 0)
-        if sell_amount < min_amount:
-            # Amount is dust — below the exchange minimum we can never sell.
-            # Close the trade to stop the bot from retrying forever.
-            dust_value = actual_amount * exchange.fetch_ticker(symbol).get('last', 0)
-            print(f"  ⚠️  [{reason}] {symbol} sell amount {sell_amount} < exchange min {min_amount}. "
-                  f"Dust value ≈ ${dust_value:.4f}. Marking trade closed to stop retrying.")
-            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount {sell_amount} below min {min_amount}, dust ≈ ${dust_value:.4f}")
-            return True  # Return True so the trade is removed from open_trades
+        # Hard floor: if rounding reduced the amount to zero it's pure dust
+        if sell_amount <= 0:
+            dust_value = actual_amount * (exchange.fetch_ticker(symbol).get('last') or 0)
+            print(f"  ⚠️  [{reason}] {symbol} rounded to 0 after precision — dust (≈${dust_value:.4f}). Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount rounded to zero, dust ≈ ${dust_value:.4f}")
+            return True
 
-        exchange.create_market_order(symbol, 'sell', sell_amount)
-        print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
-        return True
+        # Try the sell. Catch precision/minimum errors explicitly and treat as dust.
+        try:
+            exchange.create_market_order(symbol, 'sell', sell_amount)
+            print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
+            return True
+        except Exception as order_err:
+            err_str = str(order_err).lower()
+            # Binance min-amount / min-precision errors mean we can never sell this dust
+            if 'minimum amount' in err_str or 'amount precision' in err_str or 'lot size' in err_str:
+                dust_value = actual_amount * (exchange.fetch_ticker(symbol).get('last') or 0)
+                print(f"  ⚠️  [{reason}] {symbol} below exchange minimum ({sell_amount}). "
+                      f"Dust ≈ ${dust_value:.4f}. Marking closed to stop retrying.")
+                log_trade_history(f"DUST CLOSE ({reason}): {symbol} — {order_err}, dust ≈ ${dust_value:.4f}")
+                return True  # remove from open_trades
+            raise  # re-raise anything else so the outer except logs it
+
     except Exception as e:
         print(f"  ❌ [{reason}] Sell failed for {symbol}: {e}. Will retry next cycle.")
         log_trade_history(f"SELL FAILED ({reason}): {symbol} — {e}")
