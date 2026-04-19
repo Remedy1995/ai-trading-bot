@@ -384,8 +384,8 @@ def get_actual_balance(exchange, symbol):
         balance = exchange.fetch_balance()
         free  = float(balance.get(base_asset, {}).get('free',  0.0) or 0.0)
         total = float(balance.get(base_asset, {}).get('total', 0.0) or 0.0)
-        # If free balance is too small (locked in exchange stop order), use total
-        return free if free >= 0.0001 else total
+        # Prefer free; fall back to total if free is essentially zero
+        return free if free > 1e-9 else total
     except Exception as e:
         print(f"  ⚠️  Could not fetch {symbol} balance: {e}")
         return 0.0
@@ -395,6 +395,10 @@ def execute_sell(exchange, symbol, amount, reason):
     """
     Executes a market sell. Cancels any open stop orders first to free locked
     balance, then sells. Never crashes the daemon.
+
+    Key fix: after rounding to exchange step-size, verify the amount is above the
+    exchange minimum.  If it is below minimum (dust), treat the trade as closed so
+    the bot stops retrying endlessly.
     """
     if SIMULATION_MODE or not exchange:
         print(f"  [SIMULATION] SOLD {amount:.6f} {symbol} ({reason})")
@@ -410,16 +414,28 @@ def execute_sell(exchange, symbol, amount, reason):
         except Exception as cancel_err:
             print(f"  ⚠️  Could not cancel open orders for {symbol}: {cancel_err}")
 
-        # Now fetch the freed balance
+        # Fetch the freed balance
         actual_amount = get_actual_balance(exchange, symbol)
         if actual_amount <= 0:
-            print(f"  ⚠️  [{reason}] No balance found for {symbol} — may already be sold.")
-            return True  # Treat as closed to clear from state
+            print(f"  ⚠️  [{reason}] No balance found for {symbol} — treating as already sold.")
+            return True
 
-        # Binance requires correct precision — let ccxt handle it
+        # Round to exchange step-size
         market = exchange.market(symbol)
-        sell_amount = exchange.amount_to_precision(symbol, actual_amount)
-        exchange.create_market_order(symbol, 'sell', float(sell_amount))
+        sell_amount = float(exchange.amount_to_precision(symbol, actual_amount))
+
+        # Check against exchange minimum order size
+        min_amount = float((market.get('limits') or {}).get('amount', {}).get('min') or 0)
+        if sell_amount < min_amount:
+            # Amount is dust — below the exchange minimum we can never sell.
+            # Close the trade to stop the bot from retrying forever.
+            dust_value = actual_amount * exchange.fetch_ticker(symbol).get('last', 0)
+            print(f"  ⚠️  [{reason}] {symbol} sell amount {sell_amount} < exchange min {min_amount}. "
+                  f"Dust value ≈ ${dust_value:.4f}. Marking trade closed to stop retrying.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount {sell_amount} below min {min_amount}, dust ≈ ${dust_value:.4f}")
+            return True  # Return True so the trade is removed from open_trades
+
+        exchange.create_market_order(symbol, 'sell', sell_amount)
         print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
         return True
     except Exception as e:
@@ -556,9 +572,25 @@ def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_pri
         return None
 
     try:
+        # Validate buy amount meets exchange minimums BEFORE submitting
+        exchange.load_markets()
+        market = exchange.market(symbol)
+        buy_amount = float(exchange.amount_to_precision(symbol, amount))
+        min_amount = float((market.get('limits') or {}).get('amount', {}).get('min') or 0)
+        min_cost   = float((market.get('limits') or {}).get('cost',   {}).get('min') or 0)
+        cost       = buy_amount * current_price
+
+        if buy_amount < min_amount:
+            print(f"  ❌ [BUY SKIPPED] {symbol}: calculated amount {buy_amount} < exchange min {min_amount}. "
+                  f"Increase TRADE_AMOUNT_USD or skip this coin.")
+            return None
+        if min_cost and cost < min_cost:
+            print(f"  ❌ [BUY SKIPPED] {symbol}: order cost ${cost:.2f} < exchange min cost ${min_cost:.2f}.")
+            return None
+
         print(f"  ⚡ Executing LIVE Market BUY for {symbol}...")
-        order = exchange.create_market_order(symbol, 'buy', amount)
-        actual_amount = order.get('filled', amount)
+        order = exchange.create_market_order(symbol, 'buy', buy_amount)
+        actual_amount = order.get('filled', buy_amount)
         print(f"  ✅ SUCCESS! Buy order complete.")
         return actual_amount
     except Exception as e:
