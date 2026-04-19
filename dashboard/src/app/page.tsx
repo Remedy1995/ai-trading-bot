@@ -62,12 +62,28 @@ export default function Dashboard() {
         body: JSON.stringify({ timeframe: tf }),
       });
       if (res.ok) {
-        // Refresh data to show new setting
         const d = await fetch('/api/data').then(r => r.json());
         setData(d);
       }
     } catch (e) {
       console.error('Failed to update timeframe', e);
+    }
+  };
+
+  const updateTradeAmount = async (amount: number) => {
+    if (amount < 1) return;
+    try {
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trade_amount: amount }),
+      });
+      if (res.ok) {
+        const d = await fetch('/api/data').then(r => r.json());
+        setData(d);
+      }
+    } catch (e) {
+      console.error('Failed to update trade amount', e);
     }
   };
 
@@ -171,22 +187,40 @@ export default function Dashboard() {
               </div>
             </div>
 
-            {/* Timeframe Selector */}
-            <div className="flex items-center gap-1 mt-2 bg-slate-900 p-1 rounded-lg border border-slate-800">
-              {['5m', '15m', '1h', '4h', '1d'].map((tf) => (
-                <button
-                  key={tf}
-                  onClick={() => updateTimeframe(tf)}
-                  className={clsx(
-                    "px-2 py-0.5 rounded text-[10px] font-bold transition-all",
-                    settings.timeframe === tf 
-                      ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20" 
-                      : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
-                  )}
-                >
-                  {tf.toUpperCase()}
-                </button>
-              ))}
+            {/* Timeframe + Trade Amount row */}
+            <div className="flex items-center gap-2 mt-2">
+              {/* Timeframe Selector */}
+              <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+                {['5m', '15m', '1h', '4h', '1d'].map((tf) => (
+                  <button
+                    key={tf}
+                    onClick={() => updateTimeframe(tf)}
+                    className={clsx(
+                      "px-2 py-0.5 rounded text-[10px] font-bold transition-all",
+                      settings.timeframe === tf
+                        ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
+                        : "text-slate-500 hover:text-slate-300 hover:bg-slate-800"
+                    )}
+                  >
+                    {tf.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              {/* Trade Amount */}
+              <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
+                <DollarSign className="w-3 h-3 text-emerald-400 shrink-0" />
+                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">Trade $</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  defaultValue={(settings as any).trade_amount ?? 15}
+                  onBlur={(e) => updateTradeAmount(Number(e.target.value))}
+                  onKeyDown={(e) => { if (e.key === 'Enter') updateTradeAmount(Number((e.target as HTMLInputElement).value)); }}
+                  className="w-14 bg-slate-800 text-emerald-300 font-black text-[11px] text-center rounded px-1 py-0.5 border border-slate-700 focus:outline-none focus:border-indigo-500"
+                />
+              </div>
             </div>
           </div>
         </div>

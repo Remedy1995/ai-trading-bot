@@ -36,7 +36,7 @@ RESULTS_FILE    = os.path.join(DATA_DIR, "enhanced_results.json")
 BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of truth for dashboard
 
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
-TRADE_AMOUNT_USD = 8.0                  # $8 per trade — safe for $40 starting balance
+TRADE_AMOUNT_USD = 15.0                 # $15 per trade — safe for $50 balance (3 trades max = $45)
 TIMEFRAME = '1h'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this (25% of $40 balance)
 MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades ($8×3=$24 of $28 balance)
@@ -624,7 +624,7 @@ def execute_market_buy(exchange, symbol, action, current_price, sl_price, tp_pri
 #  6. THE 24/7 CONTINUOUS LOOP (DAEMON)
 # ─────────────────────────────────────────────────────────────────
 def run_continuous_daemon():
-    global POLL_INTERVAL_SEC, TIMEFRAME
+    global POLL_INTERVAL_SEC, TIMEFRAME, TRADE_AMOUNT_USD
     print("\n" + "═" * 60)
     print("  🚀 STARTING 24/7 CONTINUOUS TRADING DAEMON")
     print("  Monitoring real-time prices & checking Indicators.")
@@ -648,8 +648,8 @@ def run_continuous_daemon():
     # User can still override anytime via the dashboard UI
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w') as f:
-            json.dump({"timeframe": "1h"}, f, indent=2)
-        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h")
+            json.dump({"timeframe": "1h", "trade_amount": TRADE_AMOUNT_USD}, f, indent=2)
+        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h, trade amount: $15")
     else:
         try:
             with open(SETTINGS_FILE, 'r') as f:
@@ -674,12 +674,16 @@ def run_continuous_daemon():
             try:
                 with open(SETTINGS_FILE, 'r') as f:
                     settings = json.load(f)
-                    current_tf = settings.get("timeframe", "5m")
-                    if current_tf != TIMEFRAME:
-                        print(f"  ⚙️ [SETTING CHANGE] Switching timeframe to {current_tf}")
-                        TIMEFRAME = current_tf
-                        # Poll interval always stays at 5 minutes regardless of timeframe
-                        # so open trades are monitored frequently and stops are never missed
+
+                current_tf = settings.get("timeframe", "1h")
+                if current_tf != TIMEFRAME:
+                    print(f"  ⚙️ [SETTING CHANGE] Switching timeframe to {current_tf}")
+                    TIMEFRAME = current_tf
+
+                new_amount = float(settings.get("trade_amount", TRADE_AMOUNT_USD))
+                if new_amount != TRADE_AMOUNT_USD:
+                    print(f"  ⚙️ [SETTING CHANGE] Trade amount updated: ${TRADE_AMOUNT_USD} → ${new_amount}")
+                    TRADE_AMOUNT_USD = new_amount
 
             except Exception as e:
                 print(f"  [Warn] Failed to load {SETTINGS_FILE}: {e}")

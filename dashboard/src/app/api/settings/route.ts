@@ -8,14 +8,13 @@ export async function POST(request: Request) {
     const parentDir = process.env.DATA_DIR || path.resolve(process.cwd(), '..');
     const settingsPath = path.join(parentDir, 'settings.json');
 
-    let settings = { timeframe: '1h' };
+    let settings: any = { timeframe: '1h', trade_amount: 15 };
     if (fs.existsSync(settingsPath)) {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
 
-    if (body.timeframe) {
-      settings.timeframe = body.timeframe;
-    }
+    if (body.timeframe) settings.timeframe = body.timeframe;
+    if (body.trade_amount) settings.trade_amount = Number(body.trade_amount);
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
