@@ -483,7 +483,7 @@ def manage_open_trade(exchange, symbol, trade_info, current_price):
     # Trailing stop can only ever be above the hard SL
     effective_stop = max(trail_stop, hard_sl)
 
-    pnl = ((current_price - buy_price) / buy_price) * 100
+    pnl = ((current_price - buy_price) / buy_price) * 100 if buy_price else 0
 
     # 1. Fixed Take Profit Hit? → sell immediately, lock in guaranteed profit
     if current_price >= tp_price:
@@ -733,7 +733,7 @@ def run_continuous_daemon():
                     # Use current_price as best available proxy (manage_open_trade
                     # only fires the sell when price crosses the level, so slippage is minimal).
                     buy_price  = state[symbol]['buy_price']
-                    amount     = state[symbol].get('amount', TRADE_AMOUNT_USD / buy_price)
+                    amount     = state[symbol].get('amount', TRADE_AMOUNT_USD / buy_price if buy_price else 0)
                     exit_price = current_price   # actual market price that triggered the close
 
                     trade_pnl_usd = (exit_price - buy_price) * amount

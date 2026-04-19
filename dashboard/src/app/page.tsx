@@ -49,14 +49,19 @@ export default function Dashboard() {
 
 
   useEffect(() => {
-    fetch('/api/data')
-      .then(r => r.json())
-      .then(d => {
-        setData(d);
-        setLoading(false);
-        if (d?.settings?.trade_amount) setTradeAmountInput(Number(d.settings.trade_amount));
-      })
-      .catch(() => setLoading(false));
+    const load = () =>
+      fetch('/api/data')
+        .then(r => r.json())
+        .then(d => {
+          setData(d);
+          setLoading(false);
+          if (d?.settings?.trade_amount) setTradeAmountInput(Number(d.settings.trade_amount));
+        })
+        .catch(() => setLoading(false));
+
+    load();
+    const interval = setInterval(load, 30_000); // auto-refresh every 30 seconds
+    return () => clearInterval(interval);
   }, []);
 
   const updateTimeframe = async (tf: string) => {
@@ -338,8 +343,8 @@ export default function Dashboard() {
                             </div>
                             <div className="flex justify-between">
                               <span className="text-slate-400">P&L</span>
-                              <span className={clsx('font-bold', ((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100) >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
-                                {((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100).toFixed(2)}%
+                              <span className={clsx('font-bold', openTrade.buy_price ? ((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100) >= 0 ? 'text-emerald-400' : 'text-rose-400' : 'text-slate-400')}>
+                                {openTrade.buy_price ? ((coin.current_price - openTrade.buy_price) / openTrade.buy_price * 100).toFixed(2) : '0.00'}%
                               </span>
                             </div>
                           </div>

@@ -13,8 +13,12 @@ export async function POST(request: Request) {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
     }
 
-    if (body.timeframe) settings.timeframe = body.timeframe;
-    if (body.trade_amount) settings.trade_amount = Number(body.trade_amount);
+    const validTimeframes = ['5m', '15m', '1h', '4h', '1d'];
+    if (body.timeframe && validTimeframes.includes(body.timeframe)) settings.timeframe = body.timeframe;
+    if (body.trade_amount) {
+      const amt = Number(body.trade_amount);
+      if (amt > 0 && amt <= 10000) settings.trade_amount = amt;
+    }
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
 
