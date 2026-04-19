@@ -81,7 +81,7 @@ export default function Dashboard() {
   };
 
   const updateTradeAmount = async (amount: number) => {
-    if (amount < 1) return;
+    if (amount < 5) return;  // enforce $5 minimum to match exchange minimums
     try {
       const res = await fetch('/api/settings', {
         method: 'POST',
@@ -223,7 +223,7 @@ export default function Dashboard() {
                 <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">Trade $</span>
                 <input
                   type="number"
-                  min={1}
+                  min={5}
                   step={1}
                   value={tradeAmountInput}
                   onChange={(e) => setTradeAmountInput(Number(e.target.value))}

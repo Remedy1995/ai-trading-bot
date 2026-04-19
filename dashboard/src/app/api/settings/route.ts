@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     if (body.timeframe && validTimeframes.includes(body.timeframe)) settings.timeframe = body.timeframe;
     if (body.trade_amount) {
       const amt = Number(body.trade_amount);
-      if (amt > 0 && amt <= 10000) settings.trade_amount = amt;
+      if (amt >= 5 && amt <= 10000) settings.trade_amount = amt;  // min $5 to meet exchange minimums
     }
 
     fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));

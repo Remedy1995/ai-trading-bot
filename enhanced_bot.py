@@ -26,8 +26,8 @@ INDICATORS USED
 
 RISK MANAGEMENT
 ───────────────
-• Stop-Loss  = Entry ± (1.5 × ATR)   → adapts to current volatility
-• Take-Profit = Entry ± (3.0 × ATR)  → minimum 2:1 risk-reward
+• Stop-Loss  = Entry ± (1.0 × ATR)   → tight stop, minimal loss per trade
+• Take-Profit = Entry ± (3.0 × ATR)  → 3:1 risk-reward ratio
 • No trade when ADX < 20             → avoids choppy ranging markets
 • Trailing stop logic in backtest    → locks in profits as price moves
 """
@@ -193,7 +193,8 @@ def calc_bollinger(close: pd.Series):
     std = close.rolling(BB_PERIOD).std()
     upper = mid + BB_STD * std
     lower = mid - BB_STD * std
-    pct_b = (close - lower) / (upper - lower)
+    bandwidth = (upper - lower).replace(0, float('nan'))  # avoid division by zero in flat markets
+    pct_b = (close - lower) / bandwidth
     bw    = (upper - lower) / mid
     return upper, mid, lower, pct_b, bw
 
