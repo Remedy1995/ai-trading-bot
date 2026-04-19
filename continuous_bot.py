@@ -425,25 +425,33 @@ def execute_sell(exchange, symbol, amount, reason):
         market = exchange.market(symbol)
         sell_amount = float(exchange.amount_to_precision(symbol, actual_amount))
 
-        # Get current price for dust value calculation
-        current_price_now = exchange.fetch_ticker(symbol).get('last') or 0
-        dust_value = actual_amount * current_price_now
-
-        # Hard floor: if rounding reduced the amount to zero it's pure dust
+        # Hard floor: if precision rounding reduced amount to zero — pure dust
         if sell_amount <= 0:
-            print(f"  ⚠️  [{reason}] {symbol} rounded to 0 — dust (≈${dust_value:.4f}). Marking closed.")
-            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount rounded to zero, dust ≈ ${dust_value:.4f}")
+            print(f"  ⚠️  [{reason}] {symbol} rounded to 0 after precision. Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount rounded to zero")
             return True
 
-        # If the total value is below $1 it can never be sold profitably — treat as dust
-        if dust_value < 1.0:
-            print(f"  ⚠️  [{reason}] {symbol} dust value ${dust_value:.4f} < $1. Marking closed.")
-            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — dust value ${dust_value:.4f}, not worth selling")
+        # Use sell_amount (not actual_amount) for the notional check — avoids
+        # mismatch where actual passes $1 but rounded sell amount falls below notional
+        current_price_now = exchange.fetch_ticker(symbol).get('last') or 0
+        order_value = sell_amount * current_price_now
+        if order_value < 2.0:
+            print(f"  ⚠️  [{reason}] {symbol} order value ${order_value:.4f} < $2. Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — order value ${order_value:.4f}")
             return True
 
-        exchange.create_market_order(symbol, 'sell', sell_amount)
-        print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
-        return True
+        # Attempt the sell — wrap in its own try so failures here don't cause a retry
+        try:
+            exchange.create_market_order(symbol, 'sell', sell_amount)
+            print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
+            return True
+        except Exception as sell_err:
+            # Any sell failure on a small position = treat as dust, don't retry
+            if order_value < 10.0:
+                print(f"  ⚠️  [{reason}] {symbol} sell error on small position (${order_value:.2f}): {sell_err}. Marking closed.")
+                log_trade_history(f"DUST CLOSE ({reason}): {symbol} — sell error on ${order_value:.2f} position: {sell_err}")
+                return True
+            raise  # large position — propagate so outer except logs and retries
 
     except Exception as e:
         print(f"  ❌ [{reason}] Sell failed for {symbol}: {e}. Will retry next cycle.")
