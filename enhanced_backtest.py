@@ -25,6 +25,7 @@ WHY THIS WINS MORE TRADES
    repeatedly being stopped out in choppy, ranging markets
 """
 
+import os
 import json
 import time
 import requests
@@ -46,7 +47,7 @@ BB_PERIOD, BB_STD                       = 20, 2.0
 ATR_PERIOD                              = 14
 ADX_PERIOD                              = 14
 
-ATR_STOP_MULT    = 1.5
+ATR_STOP_MULT    = 1.0   # must match enhanced_bot.py (live bot uses 1.0)
 ATR_TARGET_MULT  = 3.0
 ATR_TRAIL_MULT   = 2.0     # Trailing stop = 2×ATR below highest close
 
@@ -87,7 +88,8 @@ def bollinger(close):
     std = close.rolling(BB_PERIOD).std()
     up  = mid + BB_STD * std
     lo  = mid - BB_STD * std
-    return (close - lo) / (up - lo)          # returns %B
+    bandwidth = (up - lo).replace(0, float('nan'))  # avoid division by zero in flat markets
+    return (close - lo) / bandwidth          # returns %B
 
 def atr(h, l, c, n=14):
     pc = c.shift(1)
@@ -146,8 +148,9 @@ def score(df, i):
     elif r.rsi > 75:       s -= 1
 
     # 5. Bollinger %B
-    if 0.45 <= r.pct_b <= 0.90:  s += 1
-    elif r.pct_b > 0.95:         s -= 1
+    # %B > 0.95 = riding upper band → NEUTRAL (matches live bot — breakout momentum,
+    # not a reversal signal; RSI handles overbought separately)
+    if 0.45 <= r.pct_b <= 0.95:  s += 1
 
     # 6. ADX + direction
     if r.adx >= ADX_MIN and r.pdi > r.mdi:   s += 1
@@ -252,8 +255,6 @@ def backtest(coin_id, ticker, df):
                     highest   = price
                     in_trade  = True
 
-                    if trades:
-                        trades[-1]["entry_date"] = date   # patch entry date
                     trades.append({
                         "entry_date":  date,
                         "exit_date":   None,
