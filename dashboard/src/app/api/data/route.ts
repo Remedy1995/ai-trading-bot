@@ -39,7 +39,7 @@ export async function GET() {
     const settings            = readJson(path.join(parentDir, 'settings.json'), { timeframe: '1h', trade_amount: 15 });
 
     // Extract from single source of truth
-    const enhancedResults     = { results: botState.signals ?? [], generated: botState.generated };
+    const enhancedResults     = { results: botState.signals ?? [], generated: botState.generated, aggregate_stats: botState.stats ?? {} };
     const tradeState          = botState.open_trades ?? {};
     const balance             = botState.balance ?? { usdt_free: null, usdt_total: null };
 
