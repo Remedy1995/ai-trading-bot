@@ -102,7 +102,7 @@ export default function Dashboard() {
     enhancedResults   = {},
     enhancedBacktest  = [],
     tradeHistory      = [],
-    settings          = { timeframe: '1h' },
+    settings          = { timeframe: '1h', trade_amount: 15 },
     tradeState        = {},
     balance           = { usdt_free: null, usdt_total: null },
     lastUpdated,
