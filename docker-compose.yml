@@ -28,7 +28,7 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - bot_data:/app/data:ro   # Read-only — dashboard only reads JSON files
+      - bot_data:/app/data      # Shared volume — dashboard reads bot data and writes settings.json
     environment:
       - NODE_ENV=production
       - DATA_DIR=/app/data
