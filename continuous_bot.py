@@ -42,6 +42,11 @@ MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily loss
 MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades
 TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
 
+# Mid-trade score re-evaluation
+# If the confluence score drops to or below this threshold WHILE in a trade,
+# the bot will exit early to lock in any available profit.
+MIN_SCORE_TO_HOLD = 2   # ≤ 2/7 → signals have deteriorated; exit if in profit
+
 # Groq AI Configuration
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GROQ_MODEL   = "llama-3.1-70b-versatile"
@@ -462,12 +467,18 @@ def execute_sell(exchange, symbol, amount, reason):
         return False
 
 
-def manage_open_trade(exchange, symbol, trade_info, current_price):
+def manage_open_trade(exchange, symbol, trade_info, current_price, current_score: int = None):
     """
-    Hybrid Exit Handler — Fixed TP + Trailing Stop (whichever hits first).
-    - Fixed TP    = sells immediately when price reaches the target
-    - Trailing stop = rises with price, sells when price pulls back ATR_TRAIL_MULT × ATR
-    - Hard SL     = fixed floor, fires instantly on a crash
+    Hybrid Exit Handler — Fixed TP + Trailing Stop + Mid-Trade Score Re-Evaluation.
+
+    Exit hierarchy (checked in order):
+    1. Fixed TP       — sells when price hits the target, guaranteed profit
+    2. Hard SL        — fixed floor, fires instantly on crash
+    3. Trailing Stop  — rising stop that locks in profit as price climbs
+    4. Score Exit     — if confluence score drops to ≤ MIN_SCORE_TO_HOLD AND
+                        the trade is in profit → exit early rather than risk
+                        giving back gains while waiting for a TP the market
+                        no longer supports.
     """
     hard_sl    = trade_info["stop_loss"]
     tp_price   = trade_info["take_profit"]
@@ -507,8 +518,29 @@ def manage_open_trade(exchange, symbol, trade_info, current_price):
             return "CLOSED_TAKE_PROFIT"
         return "OPEN"
 
+    # 4. Mid-Trade Score Re-Evaluation
+    #    Signals have reversed since entry. If the trade is in profit, exit now
+    #    to protect gains rather than waiting for a TP the market no longer supports.
+    #    If the trade is flat or at a loss, leave the hard SL to handle it — forcing
+    #    an early loss exit here would only make things worse.
+    if current_score is not None and current_score <= MIN_SCORE_TO_HOLD:
+        if pnl > 0:
+            print(
+                f"  ⚠️  [SCORE EXIT] {symbol} confluence dropped to {current_score}/7 "
+                f"(threshold ≤{MIN_SCORE_TO_HOLD}). "
+                f"Trade is +{pnl:.2f}% in profit — exiting early to lock gains."
+            )
+            if execute_sell(exchange, symbol, amount, "SCORE EXIT"):
+                return "CLOSED_SCORE_EXIT"
+            return "OPEN"
+        elif pnl <= 0:
+            print(
+                f"  ⚠️  [SCORE EXIT] {symbol} confluence dropped to {current_score}/7 "
+                f"but trade is {pnl:.2f}% — holding position; SL will protect capital."
+            )
+
     # Still running
-    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Price: ${current_price:.4f} | TP: ${tp_price:.4f} | Trail stop: ${effective_stop:.4f}")
+    print(f"  ⏳ [IN TRADE] {symbol}: P&L {pnl:+.2f}% | Score: {current_score}/7 | Price: ${current_price:.4f} | TP: ${tp_price:.4f} | Trail stop: ${effective_stop:.4f}")
     return "OPEN"
 
 
@@ -724,7 +756,22 @@ def run_continuous_daemon():
             trade_active = False
             if symbol in state and state[symbol]['status'] == 'OPEN':
                 trade_active = True
-                new_status = manage_open_trade(exchange, symbol, state[symbol], current_price)
+                # Fetch latest score BEFORE managing the trade so the score exit
+                # can act on it within the same cycle.
+                # We do a lightweight indicator build here; the full df build
+                # follows below for the dashboard output.
+                _df_score = fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250)
+                _current_score = None
+                if not _df_score.empty and len(_df_score) >= 200:
+                    try:
+                        _df_score = build_all_indicators(_df_score)
+                        _conf_now = score_confluence(_df_score)
+                        _current_score = _conf_now["score"]
+                        print(f"  📊 [MID-TRADE SCORE] {symbol}: {_current_score}/7 (entry threshold was 4/7)")
+                    except Exception as _se:
+                        print(f"  ⚠️  [MID-TRADE SCORE] Could not score {symbol}: {_se}")
+
+                new_status = manage_open_trade(exchange, symbol, state[symbol], current_price, _current_score)
                 # Persist updated highest_price so trailing stop survives bot restarts
                 save_state(state)
 
@@ -764,17 +811,30 @@ def run_continuous_daemon():
                     if symbol in state:
                         del state[symbol]
                     save_state(state)
-                    send_discord_alert(symbol, coin_name, f"EXIT: {new_status} | {result_str} | PNL: ${trade_pnl_usd:.2f}", exit_price)
-                    log_trade_history(f"{result_str} ({new_status}): {symbol} @ ${exit_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
+
+                    # Build a human-readable exit reason for Discord/history
+                    exit_reason_map = {
+                        "CLOSED_TAKE_PROFIT": "🎯 TAKE PROFIT",
+                        "CLOSED_STOP_LOSS":   "🔴 STOP LOSS",
+                        "CLOSED_SCORE_EXIT":  "⚠️  SCORE EXIT (signals reversed)",
+                    }
+                    exit_label = exit_reason_map.get(new_status, new_status)
+
+                    send_discord_alert(symbol, coin_name, f"EXIT: {exit_label} | {result_str} | PNL: ${trade_pnl_usd:.2f}", exit_price)
+                    log_trade_history(f"{result_str} ({exit_label}): {symbol} @ ${exit_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
 
             # --- B. Fetch Chart Data & Analyze ---
-            df = fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250)
-            if df.empty or len(df) < 200:
-                print(f"  ⚠️ Not enough data for {symbol}, skipping.")
-                continue
+            # Reuse the already-fetched + indicator-built df if we scored mid-trade,
+            # otherwise fetch fresh. Avoids a double Binance API call per open trade.
+            if trade_active and '_df_score' in dir() and not _df_score.empty and len(_df_score) >= 200 and 'ema9' in _df_score.columns:
+                df = _df_score
+            else:
+                df = fetch_ohlcv(exchange, symbol, timeframe=TIMEFRAME, limit=250)
+                if df.empty or len(df) < 200:
+                    print(f"  ⚠️ Not enough data for {symbol}, skipping.")
+                    continue
+                df = build_all_indicators(df)
 
-            # Calculate the 7 custom indicators from your enhanced bot
-            df = build_all_indicators(df)
             conf = score_confluence(df)
             verdict = conf["verdict"]
 
