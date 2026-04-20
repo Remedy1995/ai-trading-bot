@@ -29,7 +29,7 @@ RISK MANAGEMENT
 • Stop-Loss  = Entry ± (1.0 × ATR)   → tight stop, minimal loss per trade
 • Take-Profit = Entry ± (3.0 × ATR)  → 3:1 risk-reward ratio
 • No trade when ADX < 20             → avoids choppy ranging markets
-• Trailing stop logic in backtest    → locks in profits as price moves
+• Trailing stop = 1.5×ATR            → locks in profits tightly as price moves
 """
 
 import os
@@ -93,7 +93,7 @@ BB_BULL_HIGH    = 0.95     # %B above this → overbought, no bull vote
 ATR_PERIOD      = 14
 ATR_STOP_MULT   = 1.0      # Stop  = Entry ± 1.0 × ATR  → tighter, less loss per stop
 ATR_TARGET_MULT = 3.0      # Target = Entry ± 3.0 × ATR  → 3:1 R:R (3.0/1.0)
-ATR_TRAIL_MULT  = 2.0      # Trailing stop = 2.0 × ATR below highest price reached
+ATR_TRAIL_MULT  = 1.5      # Trailing stop = 1.5 × ATR below highest price reached
 
 # ADX trend-strength filter
 ADX_PERIOD      = 14
