@@ -36,10 +36,10 @@ RESULTS_FILE    = os.path.join(DATA_DIR, "enhanced_results.json")
 BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of truth for dashboard
 
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
-TRADE_AMOUNT_USD = 15.0                 # $15 per trade — safe for $50 balance (3 trades max = $45)
+TRADE_AMOUNT_USD = 12.0                 # $12 per trade — safe for $50 balance (4 trades max = $48)
 TIMEFRAME = '1h'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this
-MAX_OPEN_TRADES = 3                     # Max 3 simultaneous trades
+MAX_OPEN_TRADES = 4                     # Max 4 simultaneous trades (4 × $12 = $48 fits $50 balance)
 TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
 
 # Mid-trade score re-evaluation
@@ -683,7 +683,7 @@ def run_continuous_daemon():
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w') as f:
             json.dump({"timeframe": "1h", "trade_amount": TRADE_AMOUNT_USD}, f, indent=2)
-        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h, trade amount: $15")
+        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h, trade amount: $12")
     else:
         try:
             with open(SETTINGS_FILE, 'r') as f:
