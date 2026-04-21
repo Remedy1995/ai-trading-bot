@@ -522,15 +522,20 @@ def manage_open_trade(exchange, symbol, trade_info, current_price, current_score
         return "OPEN"
 
     # 3. Trailing Stop Hit? (price pulled back from peak before reaching TP)
-    # Only fire if trade is at least 1% in profit — ensures fees (~0.2%) are covered
-    # and we're locking in a real gain, not a dust win that fees will erase.
+    # - If negative: exit immediately — don't hold a losing trade hoping it recovers
+    # - If positive but < 1%: hold — profit too small to cover fees, wait for more
+    # - If >= 1%: exit — real profit after fees
     if current_price <= effective_stop and highest > buy_price:
-        if pnl >= 1.0:
-            print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. P&L: {pnl:+.2f}%. Locking in profit.")
+        if pnl < 0:
+            print(f"  🔴 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, now at ${current_price:.4f}. P&L: {pnl:+.2f}% — cutting loss.")
+            if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
+                return "CLOSED_STOP_LOSS"
+        elif pnl >= 1.0:
+            print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. P&L: {pnl:+.2f}% — locking in profit.")
             if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
                 return "CLOSED_TAKE_PROFIT"
         else:
-            print(f"  ⏸️  [TRAILING STOP HELD] {symbol} trail triggered but only {pnl:+.2f}% — waiting for 1% min before exiting.")
+            print(f"  ⏸️  [TRAILING STOP HELD] {symbol} trail triggered but only {pnl:+.2f}% profit — waiting for 1% min before exiting.")
         return "OPEN"
 
     # 4. Mid-Trade Score Re-Evaluation
