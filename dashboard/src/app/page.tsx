@@ -121,8 +121,12 @@ export default function Dashboard() {
   const enhancedCoins: any[] = enhancedResults?.results ?? [];
 
   // Map coin ticker → trade status
-  const openTradeCount = Object.values(tradeState as Record<string, any>).filter((t: any) => t.status === 'OPEN').length;
   const MAX_TRADES = 4;
+  // Count directly from tradeState keys that appear in signals — avoids stale/mismatched entries inflating the count
+  const openTradeCount = enhancedCoins.filter((coin: any) => {
+    const ticker = coin.symbol ?? (coin.ticker + '/USDT');
+    return (tradeState as Record<string, any>)[ticker]?.status === 'OPEN';
+  }).length;
 
   function getTradeStatus(coin: any): { label: string; style: string; emoji: string } {
     const ticker = coin.symbol ?? (coin.ticker + '/USDT');
