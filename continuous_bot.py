@@ -478,6 +478,11 @@ def execute_sell(exchange, symbol, amount, reason):
             raise  # full-size position — propagate so outer except logs and retries
 
     except Exception as e:
+        err_str = str(e).lower()
+        if 'minimum amount precision' in err_str or 'minimum amount' in err_str or 'lot size' in err_str:
+            print(f"  ⚠️  [{reason}] {symbol} below exchange minimum amount. Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — below exchange minimum: {e}")
+            return True
         print(f"  ❌ [{reason}] Sell failed for {symbol}: {e}. Will retry next cycle.")
         log_trade_history(f"SELL FAILED ({reason}): {symbol} — {e}")
         return False
