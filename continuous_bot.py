@@ -440,10 +440,11 @@ def execute_sell(exchange, symbol, amount, reason):
             return True
 
         # Check against exchange minimum order amount (e.g. XRP min=0.1, BNB min=0.001)
+        # Binance requires amount to be GREATER THAN the minimum, so use <= not <
         min_amount = ((market.get('limits') or {}).get('amount') or {}).get('min') or 0
-        if min_amount and sell_amount < min_amount:
-            print(f"  ⚠️  [{reason}] {symbol} sell_amount {sell_amount} below exchange minimum {min_amount}. Marking closed.")
-            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount {sell_amount} below exchange min {min_amount}")
+        if min_amount and sell_amount <= min_amount:
+            print(f"  ⚠️  [{reason}] {symbol} sell_amount {sell_amount} <= exchange minimum {min_amount}. Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount {sell_amount} at/below exchange min {min_amount}")
             return True
 
         # Use sell_amount (not actual_amount) for the notional check — avoids
