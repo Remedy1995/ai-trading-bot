@@ -462,6 +462,12 @@ def execute_sell(exchange, symbol, amount, reason):
             print(f"  ✅ [{reason}] Sold {sell_amount} {symbol} successfully.")
             return True
         except Exception as sell_err:
+            err_str = str(sell_err).lower()
+            # Binance rejects orders below minimum amount — treat as unrecoverable dust
+            if 'minimum amount precision' in err_str or 'minimum amount' in err_str or 'lot size' in err_str:
+                print(f"  ⚠️  [{reason}] {symbol} below exchange minimum amount. Marking closed.")
+                log_trade_history(f"DUST CLOSE ({reason}): {symbol} — below exchange minimum: {sell_err}")
+                return True
             # Only treat as unrecoverable dust if order value is very small (< 15% of trade size)
             # Larger positions that fail to sell should retry — likely a temporary API/network issue
             dust_threshold = TRADE_AMOUNT_USD * 0.15
