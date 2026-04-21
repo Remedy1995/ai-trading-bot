@@ -36,7 +36,7 @@ RESULTS_FILE    = os.path.join(DATA_DIR, "enhanced_results.json")
 BOT_STATE_FILE  = os.path.join(DATA_DIR, "bot_state.json")  # Single source of truth for dashboard
 
 POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
-TRADE_AMOUNT_USD = 12.0                 # $12 per trade — safe for $50 balance (4 trades max = $48)
+TRADE_AMOUNT_USD = 25.0                 # $25 per trade — safe for $100+ balance (4 trades max = $100)
 TIMEFRAME = '1h'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this
 MAX_OPEN_TRADES = 4                     # Max 4 simultaneous trades (4 × $12 = $48 fits $50 balance)
@@ -174,6 +174,8 @@ def load_stats():
         "wins": 0,
         "losses": 0,
         "total_pnl_usd": 0.0,
+        "total_fees_usd": 0.0,
+        "net_pnl_usd": 0.0,
         "total_invested_usd": 0.0,
         "cumulative_gains_usd": 0.0,
         "cumulative_losses_usd": 0.0,
@@ -437,6 +439,13 @@ def execute_sell(exchange, symbol, amount, reason):
             log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount rounded to zero")
             return True
 
+        # Check against exchange minimum order amount (e.g. XRP min=0.1, BNB min=0.001)
+        min_amount = ((market.get('limits') or {}).get('amount') or {}).get('min') or 0
+        if min_amount and sell_amount < min_amount:
+            print(f"  ⚠️  [{reason}] {symbol} sell_amount {sell_amount} below exchange minimum {min_amount}. Marking closed.")
+            log_trade_history(f"DUST CLOSE ({reason}): {symbol} — amount {sell_amount} below exchange min {min_amount}")
+            return True
+
         # Use sell_amount (not actual_amount) for the notional check — avoids
         # mismatch where actual passes $1 but rounded sell amount falls below notional
         current_price_now = exchange.fetch_ticker(symbol).get('last') or 0
@@ -512,10 +521,15 @@ def manage_open_trade(exchange, symbol, trade_info, current_price, current_score
         return "OPEN"
 
     # 3. Trailing Stop Hit? (price pulled back from peak before reaching TP)
+    # Only fire if trade is at least 1% in profit — ensures fees (~0.2%) are covered
+    # and we're locking in a real gain, not a dust win that fees will erase.
     if current_price <= effective_stop and highest > buy_price:
-        print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. Locking in profit.")
-        if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
-            return "CLOSED_TAKE_PROFIT"
+        if pnl >= 1.0:
+            print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. P&L: {pnl:+.2f}%. Locking in profit.")
+            if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
+                return "CLOSED_TAKE_PROFIT"
+        else:
+            print(f"  ⏸️  [TRAILING STOP HELD] {symbol} trail triggered but only {pnl:+.2f}% — waiting for 1% min before exiting.")
         return "OPEN"
 
     # 4. Mid-Trade Score Re-Evaluation
@@ -596,9 +610,23 @@ def ensure_spot_balance(exchange, amount_usd: float) -> bool:
         print(f"  💰 [BALANCE] Spot USDT: ${spot_free:.2f} — need ${amount_usd:.2f}. Redeeming ${shortfall:.2f} from Earn...")
 
         try:
+            # Fetch the actual USDT Flexible Earn product ID — don't hardcode it
+            positions = exchange.sapi_get_simple_earn_flexible_position({'asset': 'USDT'})
+            rows = positions.get('rows', [])
+            if not rows:
+                print(f"  ⚠️  [BALANCE] No USDT Flexible Earn position found. Fund Spot manually.")
+                return spot_free >= (amount_usd * 0.5)
+            product_id = rows[0]['productId']
+            earn_balance = float(rows[0].get('totalAmount', 0))
+            print(f"  💰 [BALANCE] Found Earn product {product_id} with ${earn_balance:.2f} USDT.")
+
+            if earn_balance < shortfall:
+                print(f"  ⚠️  [BALANCE] Earn only has ${earn_balance:.2f} — redeeming all available.")
+                shortfall = round(earn_balance, 2)
+
             # Binance Simple Earn Flexible redemption
             exchange.sapi_post_simple_earn_flexible_redeem({
-                'productId': 'USDT001',   # Binance Flexible USDT product ID
+                'productId': product_id,
                 'amount':    str(shortfall),
                 'type':      'FAST',      # FAST = instant redemption
             })
@@ -784,11 +812,16 @@ def run_continuous_daemon():
                     exit_price = current_price   # actual market price that triggered the close
 
                     trade_pnl_usd = (exit_price - buy_price) * amount
-                    is_win = trade_pnl_usd > 0
+                    # Binance charges 0.1% on buy and 0.1% on sell = 0.2% round trip
+                    trade_fees_usd = (buy_price * amount * 0.001) + (exit_price * amount * 0.001)
+                    net_trade_pnl_usd = trade_pnl_usd - trade_fees_usd
+                    is_win = net_trade_pnl_usd > 0
                     result_str = "🟢 WON" if is_win else "🔴 LOST"
 
                     stats = load_stats()
                     stats["total_trades"] += 1
+                    stats["total_fees_usd"] = stats.get("total_fees_usd", 0.0) + trade_fees_usd
+                    stats["net_pnl_usd"]    = stats.get("net_pnl_usd",    0.0) + net_trade_pnl_usd
 
                     if is_win:
                         stats["wins"] += 1
@@ -820,8 +853,8 @@ def run_continuous_daemon():
                     }
                     exit_label = exit_reason_map.get(new_status, new_status)
 
-                    send_discord_alert(symbol, coin_name, f"EXIT: {exit_label} | {result_str} | PNL: ${trade_pnl_usd:.2f}", exit_price)
-                    log_trade_history(f"{result_str} ({exit_label}): {symbol} @ ${exit_price:.6f}. (Bought at ${buy_price:.6f}) - PNL: ${trade_pnl_usd:.2f}")
+                    send_discord_alert(symbol, coin_name, f"EXIT: {exit_label} | {result_str} | Gross: ${trade_pnl_usd:.2f} | Fees: ${trade_fees_usd:.3f} | Net: ${net_trade_pnl_usd:.2f}", exit_price)
+                    log_trade_history(f"{result_str} ({exit_label}): {symbol} @ ${exit_price:.6f}. (Bought at ${buy_price:.6f}) - Gross: ${trade_pnl_usd:.2f} | Fees: ${trade_fees_usd:.3f} | Net: ${net_trade_pnl_usd:.2f}")
 
             # --- B. Fetch Chart Data & Analyze ---
             # Reuse the already-fetched + indicator-built df if we scored mid-trade,

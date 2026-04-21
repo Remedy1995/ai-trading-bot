@@ -122,7 +122,7 @@ export default function Dashboard() {
 
   // Map coin ticker → trade status
   const openTradeCount = Object.values(tradeState as Record<string, any>).filter((t: any) => t.status === 'OPEN').length;
-  const MAX_TRADES = 3;
+  const MAX_TRADES = 4;
 
   function getTradeStatus(coin: any): { label: string; style: string; emoji: string } {
     const ticker = coin.symbol ?? (coin.ticker + '/USDT');
@@ -353,7 +353,7 @@ export default function Dashboard() {
                         {/* Price */}
                         <div className="flex items-end gap-2">
                           <span className="text-3xl font-bold">
-                            ${coin.current_price?.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            ${coin.current_price?.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                           </span>
                           <span className={clsx(
                             'text-sm mb-0.5',
@@ -503,17 +503,20 @@ export default function Dashboard() {
                    </div>
                    <div className={clsx(
                      "border rounded-xl p-4 text-center shadow-xl",
-                     (enhancedResults.aggregate_stats.total_pnl_usd || 0) >= 0 
-                       ? "bg-indigo-900/30 border-indigo-500/50 shadow-indigo-500/10" 
+                     (enhancedResults.aggregate_stats.net_pnl_usd || 0) >= 0
+                       ? "bg-indigo-900/30 border-indigo-500/50 shadow-indigo-500/10"
                        : "bg-rose-900/30 border-rose-500/50 shadow-rose-500/10"
                    )}>
-                     <div className="text-indigo-400/80 text-[10px] uppercase font-bold tracking-widest mb-1">Net PnL (Final)</div>
+                     <div className="text-indigo-400/80 text-[10px] uppercase font-bold tracking-widest mb-1">Net PnL (after fees)</div>
                      <div className={clsx(
                        "text-2xl font-black flex items-center justify-center gap-1",
-                       (enhancedResults.aggregate_stats.total_pnl_usd || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
+                       (enhancedResults.aggregate_stats.net_pnl_usd || 0) >= 0 ? "text-indigo-300" : "text-rose-300"
                      )}>
                        <span className="opacity-60 text-sm">$</span>
-                       {(enhancedResults.aggregate_stats.total_pnl_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                       {(enhancedResults.aggregate_stats.net_pnl_usd || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                     </div>
+                     <div className="text-slate-500 text-[9px] mt-1">
+                       fees paid: ${(enhancedResults.aggregate_stats.total_fees_usd || 0).toFixed(3)}
                      </div>
                    </div>
                  </div>
@@ -526,7 +529,7 @@ export default function Dashboard() {
                    </div>
                    <div className="bg-amber-950/20 border border-amber-900/30 rounded-xl p-3 text-center">
                      <div className="text-amber-500/60 text-[10px] uppercase font-bold tracking-tight mb-0.5">Active Trades</div>
-                     <div className="text-lg font-bold text-amber-400">{enhancedResults.aggregate_stats.open_trades || 0}</div>
+                     <div className="text-lg font-bold text-amber-400">{openTradeCount} / {MAX_TRADES}</div>
                    </div>
                    <div className="bg-emerald-950/10 border border-emerald-900/20 rounded-xl p-3 text-center">
                      <div className="text-emerald-500/60 text-[10px] uppercase font-bold tracking-tight mb-0.5">Win Rate</div>
@@ -656,7 +659,7 @@ export default function Dashboard() {
                         <span className="text-2xl">{coin.emoji}</span>
                       </div>
                       <div className="text-2xl font-bold mb-3">
-                        ${coin.current_price?.toLocaleString()}
+                        ${coin.current_price?.toLocaleString(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 })}
                         <span className={clsx('text-sm ml-2', coin.change_24h >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
                           {coin.change_24h >= 0 ? '+' : ''}{coin.change_24h?.toFixed(2)}%
                         </span>
