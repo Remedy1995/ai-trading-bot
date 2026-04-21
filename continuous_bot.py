@@ -712,22 +712,30 @@ def run_continuous_daemon():
     stop_loss_cooldown: dict = {}
     COOLDOWN_CANDLES = 3  # wait 3 candles before re-entering a stopped-out coin
 
-    # Initialise settings.json with 1h default on first run or if missing
-    # User can still override anytime via the dashboard UI
+    # Initialise settings.json with defaults on first run or if missing.
+    # On existing files, migrate stale values up to current defaults.
     if not os.path.exists(SETTINGS_FILE):
         with open(SETTINGS_FILE, 'w') as f:
             json.dump({"timeframe": "1h", "trade_amount": TRADE_AMOUNT_USD}, f, indent=2)
-        print("  ⚙️  [INIT] settings.json created — default timeframe: 1h, trade amount: $12")
+        print(f"  ⚙️  [INIT] settings.json created — default timeframe: 1h, trade amount: ${TRADE_AMOUNT_USD}")
     else:
         try:
             with open(SETTINGS_FILE, 'r') as f:
                 _s = json.load(f)
-            # If still on old 5m default, upgrade to 1h automatically
+            changed = False
+            # Upgrade old 5m timeframe default to 1h
             if _s.get("timeframe") == "5m":
                 _s["timeframe"] = "1h"
+                changed = True
+                print("  ⚙️  [INIT] Upgraded default timeframe from 5m → 1h")
+            # Upgrade trade amount if below current default
+            if float(_s.get("trade_amount", 0)) < TRADE_AMOUNT_USD:
+                _s["trade_amount"] = TRADE_AMOUNT_USD
+                changed = True
+                print(f"  ⚙️  [INIT] Upgraded trade amount to ${TRADE_AMOUNT_USD}")
+            if changed:
                 with open(SETTINGS_FILE, 'w') as f:
                     json.dump(_s, f, indent=2)
-                print("  ⚙️  [INIT] Upgraded default timeframe from 5m → 1h")
         except Exception:
             pass
 
