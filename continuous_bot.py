@@ -69,7 +69,7 @@ COINS_FALLBACK = {
 
 # Dynamic universe settings
 COIN_UNIVERSE_SIZE   = 20       # How many top coins to scan
-MIN_VOLUME_24H_USD   = 500_000_000  # Skip coins with < $500M daily volume (low liquidity)
+MIN_VOLUME_24H_USD   = 100_000_000  # Skip coins with < $100M daily volume (low liquidity)
 
 # ─────────────────────────────────────────────────────────────────
 #  2. DYNAMIC COIN UNIVERSE
