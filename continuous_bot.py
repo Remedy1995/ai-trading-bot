@@ -39,7 +39,7 @@ POLL_INTERVAL_SEC = 60 * 5               # Check the market every 5 minutes
 TRADE_AMOUNT_USD = 25.0                 # $25 per trade — safe for $100+ balance (4 trades max = $100)
 TIMEFRAME = '1h'
 MAX_DAILY_LOSS_USD = 10.0               # Stop entering new trades if daily losses hit this
-MAX_OPEN_TRADES = 4                     # Max 4 simultaneous trades (4 × $12 = $48 fits $50 balance)
+MAX_OPEN_TRADES = 2                     # Max 2 simultaneous trades — concentrate on best setups
 TIMEFRAME_TO_SECONDS = {'5m': 300, '15m': 900, '1h': 3600, '4h': 14400, '1d': 86400}
 
 # Mid-trade score re-evaluation
@@ -541,12 +541,12 @@ def manage_open_trade(exchange, symbol, trade_info, current_price, current_score
             print(f"  🔴 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, now at ${current_price:.4f}. P&L: {pnl:+.2f}% — cutting loss.")
             if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
                 return "CLOSED_STOP_LOSS"
-        elif pnl >= 1.0:
+        elif pnl >= 2.0:
             print(f"  🟢 [TRAILING STOP] {symbol} peaked at ${highest:.4f}, pulled back to ${current_price:.4f}. P&L: {pnl:+.2f}% — locking in profit.")
             if execute_sell(exchange, symbol, amount, "TRAILING STOP"):
                 return "CLOSED_TAKE_PROFIT"
         else:
-            print(f"  ⏸️  [TRAILING STOP HELD] {symbol} trail triggered but only {pnl:+.2f}% profit — waiting for 1% min before exiting.")
+            print(f"  ⏸️  [TRAILING STOP HELD] {symbol} trail triggered but only {pnl:+.2f}% profit — waiting for 2% min before exiting.")
         return "OPEN"
 
     # 4. Mid-Trade Score Re-Evaluation
@@ -721,7 +721,7 @@ def run_continuous_daemon():
     # Maps symbol → unix timestamp of the stop-out. Bot won't re-enter until
     # the cooldown expires (3 candle-lengths), preventing revenge trading.
     stop_loss_cooldown: dict = {}
-    COOLDOWN_CANDLES = 3  # wait 3 candles before re-entering a stopped-out coin
+    COOLDOWN_CANDLES = 6  # wait 6 candles before re-entering a stopped-out coin
 
     # Initialise settings.json with defaults on first run or if missing.
     # On existing files, migrate stale values up to current defaults.
@@ -1004,7 +1004,7 @@ def run_continuous_daemon():
 
                 # BEARISH macro → need score >= 5 to enter (stronger confirmation required)
                 # BULLISH/NEUTRAL macro → normal 4/7 threshold applies
-                required_score = 5 if ai_verdict == "BEARISH" else 4
+                required_score = 6 if ai_verdict == "BEARISH" else 5
 
                 if raw_score < required_score:
                     print(f"  ⚠️  [AI ADVISORY] Macro is {ai_verdict} — need {required_score}/7, got {raw_score}/7. Skipping.")

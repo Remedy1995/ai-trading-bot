@@ -91,17 +91,17 @@ BB_BULL_HIGH    = 0.95     # %B above this → overbought, no bull vote
 
 # ATR-based stops
 ATR_PERIOD      = 14
-ATR_STOP_MULT   = 1.0      # Stop  = Entry ± 1.0 × ATR  → tighter, less loss per stop
-ATR_TARGET_MULT = 3.0      # Target = Entry ± 3.0 × ATR  → 3:1 R:R (3.0/1.0)
+ATR_STOP_MULT   = 1.5      # Stop  = Entry ± 1.5 × ATR  → wider stop, survives normal noise
+ATR_TARGET_MULT = 3.0      # Target = Entry ± 3.0 × ATR  → 2:1 R:R (3.0/1.5)
 ATR_TRAIL_MULT  = 1.5      # Trailing stop = 1.5 × ATR below highest price reached
 
 # ADX trend-strength filter
 ADX_PERIOD      = 14
-ADX_MIN         = 20       # Minimum ADX to trade (filters ranging markets)
+ADX_MIN         = 25       # Minimum ADX to trade (filters ranging markets)
 ADX_STRONG      = 25       # Strong trend threshold
 
 # Confluence threshold
-MIN_BULL_SCORE  = 4        # Need ≥4 bullish votes out of 7 to BUY
+MIN_BULL_SCORE  = 5        # Need ≥5 bullish votes out of 7 to BUY
 MIN_BEAR_SCORE  = -4       # Need ≤-4 bearish votes out of 7 to SELL
 
 BASE_DIR        = os.path.dirname(os.path.abspath(__file__))
